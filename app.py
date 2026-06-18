@@ -8,8 +8,8 @@ from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 
 st.set_page_config(page_title="酒店AI运营报告自动化工具", layout="wide")
 
-st.title("🏨 酒店AI运营报告数据自动化统计系统 (流程池全指标闭环版)")
-st.markdown("已新增功能：补全右侧流程池 I9 列【客人主动挂断】计数项，实现流程池指标 100% 完美全覆盖。")
+st.title("🏨 酒店AI运营报告数据自动化统计系统 (指标留白精修版)")
+st.markdown("已完成微调：将【整体电话接通率（切换AI前）】的数值清空留白，仅保留文字表头，确保数据源可追溯性。")
 
 col1, col2 = st.columns(2)
 with col1:
@@ -112,6 +112,7 @@ if detail_file is not None and extension_file is not None:
         def generate_formula_excel(date_range_str):
             wb = Workbook()
             ws1 = wb.active
+            ws1.title = "电话 data"
             ws1.title = "电话数据"
             ws1.views.sheetView[0].showGridLines = True
             
@@ -136,24 +137,26 @@ if detail_file is not None and extension_file is not None:
             
             ws1.cell(row=4, column=2, value="总来电量\n（所有启用AI的客房呼出的电话量）").alignment = align_left
             ws1.cell(row=4, column=2).font = font_body
-            # 📌 总来电量自动联动右侧流程池的总加和格 J11
             ws1.cell(row=4, column=4, value="=J11").font = font_bold_num  
             ws1.cell(row=4, column=4).alignment = align_center
             for c in range(2, 5): ws1.cell(row=4, column=c).border = thin_border
             ws1.merge_cells('B4:C4')
             
-            # 大盘头部指标
+            # 大盘头部指标表头
             headers_r6 = ["进入AI电话量", "AI接通量", "AI接通率\n（AI接通量/进入AI电话量）", "整体电话接通率\n（切换AI后）", "整体电话接通率\n（切换AI前）"]
             for idx, text in enumerate(headers_r6):
                 cell = ws1.cell(row=6, column=idx+2, value=text)
                 cell.fill = fill_gray; cell.font = font_header; cell.alignment = align_center; cell.border = thin_border
             
-            # 头部指标判定对齐
+            # 大盘核心数据行
             ws1.cell(row=7, column=2, value='=COUNTIFS(云总机通话详单!$N:$N, "接通", 云总机通话详单!$AL:$AL, "客房")').font = font_bold_num
             ws1.cell(row=7, column=3, value='=COUNTIFS(云总机通话详单!$N:$N, "接通", 云总机通话详单!$AL:$AL, "客房")').font = font_bold_num
             ws1.cell(row=7, column=4, value="=C7/B7").font = font_bold_num; ws1.cell(row=7, column=4).number_format = '0.00%'
             ws1.cell(row=7, column=5, value="=J3/D4").font = font_bold_num; ws1.cell(row=7, column=5).number_format = '0.00%'
-            ws1.cell(row=7, column=6, value=0.967).font = font_bold_num; ws1.cell(row=7, column=6).number_format = '0.00%'
+            
+            # 📌 针对反馈修正：将第六列 (整体电话接通率 切换AI前) 的数值清空留白，不再硬编码 0.967
+            ws1.cell(row=7, column=6, value="").font = font_bold_num 
+            
             for c in range(2, 7): ws1.cell(row=7, column=c).alignment = align_center; ws1.cell(row=7, column=c).border = thin_border
             
             # 人工指标区
@@ -189,14 +192,13 @@ if detail_file is not None and extension_file is not None:
             ws1.cell(row=3, column=9, value="最终成功接通").font = font_header; ws1.cell(row=3, column=9).border = thin_border
             ws1.cell(row=3, column=10, value='=COUNTIF(云总机通话详单!$AM:$AM, "是")').font = font_bold_num; ws1.cell(row=3, column=10).border = thin_border; ws1.cell(row=3, column=10).alignment = align_center
             
-            # 📌 完整重组右侧流向池（行号顺移，把“客人主动挂断”插入进 I9）
             flows = [
                 ("AI接通", "进入AI后，AI直接完成，未转接人工", '=COUNTIF(云总机通话详单!$AN:$AN, "进入AI后，AI直接完成，未转接人工")'), # J4
                 ("人工未接通", "AI接通，转接人工，人工未接通", '=COUNTIF(云总机通话详单!$AN:$AN, "AI接通，转接人工，人工未接通")'), # J5
                 ("人工未接通", "直接进入人工且最终未接通", '=COUNTIF(云总机通话详单!$AN:$AN, "直接进入人工且最终未接通")'), # J6
                 ("人工接通", "进入AI后，再转接人工，且人工接通", '=COUNTIF(云总机通话详单!$AN:$AN, "进入AI后，再转接人工，且人工接通")'), # J7
                 ("人工接通", "直接进入人工，且人工接通", '=COUNTIF(云总机通话详单!$AN:$AN, "直接进入人工，且人工接通")'), # J8
-                ("客人主动挂断", "客人主动挂断", '=COUNTIF(云总机通话详单!$AN:$AN, "客人主动挂断")'),                    # J9 (新增补充位置)
+                ("客人主动挂断", "客人主动挂断", '=COUNTIF(云总机通话详单!$AN:$AN, "客人主动挂断")'),                    # J9 
                 ("异常", "异常", '=COUNTIF(云总机通话详单!$AN:$AN, "异常")'),                                            # J10
                 ("总来电量", "总来电量", "=SUM(J4:J10)")                                                                  # J11
             ]
@@ -263,9 +265,9 @@ if detail_file is not None and extension_file is not None:
         
         st.markdown("---")
         st.download_button(
-            label=f"📥 导出【{detected_date_range}】全指标闭环版报告",
+            label=f"📥 导出【{detected_date_range}】完美运营报告",
             data=excel_data,
-            file_name=f"酒店AI运营报告【{detected_date_range}流程全覆盖版】.xlsx",
+            file_name=f"酒店AI运营报告【{detected_date_range}精修留白版】.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
         
