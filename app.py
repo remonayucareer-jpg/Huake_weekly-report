@@ -8,8 +8,8 @@ from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 
 st.set_page_config(page_title="酒店AI运营报告自动化工具", layout="wide")
 
-st.title("🏨 酒店AI运营报告数据自动化统计系统 (文件名日期动态同步版)")
-st.markdown("已新增功能：自动解析【云总机通话详单】文件名中的日期区间，并像素级同步更新至 Excel 报告的 B1 单元格。")
+st.title("🏨 酒店AI运营报告数据自动化统计系统 (流程池全指标闭环版)")
+st.markdown("已新增功能：补全右侧流程池 I9 列【客人主动挂断】计数项，实现流程池指标 100% 完美全覆盖。")
 
 col1, col2 = st.columns(2)
 with col1:
@@ -30,32 +30,26 @@ def smart_read_detail(file):
             return excel_file.parse(sheet_name)
     return excel_file.parse(0)
 
-# 📌 新增：从文件名动态提取日期的函数
 def extract_date_range(filename):
     if not filename:
-        return "0605-0611" # 默认兜底
+        return "0605-0611"
     
-    # 匹配常见的日期格式如：0605-0611, 20260605-20260611, 2026.06.05-2026.06.11 等
     date_pattern = r'(\d{4}[.\-_]?\d{2}[.\-_]?\d{2}|\d{4}|\d{2}[.\-_]?\d{2})[~\-–—]+(\d{4}[.\-_]?\d{2}[.\-_]?\d{2}|\d{4}|\d{2}[.\-_]?\d{2})'
     match = re.search(date_pattern, filename)
     
     if match:
-        # 提取到的原始日期字符串
         start_date, end_date = match.group(1), match.group(2)
-        # 清洗掉可能多余的年年份前缀，统一保持简洁如 0605-0611 的视觉感，或者直接返回原样式
         start_clean = start_date[-4:] if len(start_date.replace('.','').replace('-','')) >= 4 else start_date
         end_clean = end_date[-4:] if len(end_date.replace('.','').replace('-','')) >= 4 else end_date
         
-        # 格式化一下
         if len(start_clean) == 4 and len(end_clean) == 4:
             return f"{start_clean[:2]}{start_clean[2:]}-{end_clean[:2]}{end_clean[2:]}"
         return f"{match.group(1)}-{match.group(2)}"
     
-    return "0605-0611" # 没匹配到时的默认值
+    return "0605-0611"
 
 if detail_file is not None and extension_file is not None:
     try:
-        # 提取文件名中的日期区间
         detected_date_range = extract_date_range(detail_file.name)
         st.info(f"📅 成功从文件名中捕获到观测日期周期：`{detected_date_range}`")
 
@@ -69,7 +63,6 @@ if detail_file is not None and extension_file is not None:
         df_detail.columns = df_detail.columns.astype(str).str.strip().str.replace('\n', '')
         df_ext.columns = df_ext.columns.astype(str).str.strip().str.replace('\n', '')
         
-        # 移除可能重复的‘房间是否接入AI’列
         df_detail = df_detail.loc[:, ~df_detail.columns.duplicated()]
         if "房间是否接入AI" in df_detail.columns:
             df_detail = df_detail.drop(columns=["房间是否接入AI"])
@@ -84,7 +77,6 @@ if detail_file is not None and extension_file is not None:
         
         df_detail['房间是否接入AI'] = df_detail['主叫号码_clean'].map(ext_dict)
         
-        # 严格过滤属于呼入的记录
         df_valid = df_detail[df_detail['房间是否接入AI'].notna() & (df_detail['通话类型'] == '呼入')].copy()
         
         # 1:1 复刻 Excel 嵌套 IF 逻辑函数
@@ -136,7 +128,6 @@ if detail_file is not None and extension_file is not None:
                 top=Side(style='thin', color='D9D9D9'), bottom=Side(style='thin', color='D9D9D9')
             )
             
-            # 📌 动态写入抓取到的实际观测日期
             ws1.cell(row=1, column=2, value=f"数据周期：{date_range_str}").font = font_body
             
             for c in range(2, 7): ws1.cell(row=3, column=c).fill = fill_part
@@ -145,7 +136,8 @@ if detail_file is not None and extension_file is not None:
             
             ws1.cell(row=4, column=2, value="总来电量\n（所有启用AI的客房呼出的电话量）").alignment = align_left
             ws1.cell(row=4, column=2).font = font_body
-            ws1.cell(row=4, column=4, value="=J10").font = font_bold_num  
+            # 📌 总来电量自动联动右侧流程池的总加和格 J11
+            ws1.cell(row=4, column=4, value="=J11").font = font_bold_num  
             ws1.cell(row=4, column=4).alignment = align_center
             for c in range(2, 5): ws1.cell(row=4, column=c).border = thin_border
             ws1.merge_cells('B4:C4')
@@ -156,7 +148,7 @@ if detail_file is not None and extension_file is not None:
                 cell = ws1.cell(row=6, column=idx+2, value=text)
                 cell.fill = fill_gray; cell.font = font_header; cell.alignment = align_center; cell.border = thin_border
             
-            # 终极校准形式
+            # 头部指标判定对齐
             ws1.cell(row=7, column=2, value='=COUNTIFS(云总机通话详单!$N:$N, "接通", 云总机通话详单!$AL:$AL, "客房")').font = font_bold_num
             ws1.cell(row=7, column=3, value='=COUNTIFS(云总机通话详单!$N:$N, "接通", 云总机通话详单!$AL:$AL, "客房")').font = font_bold_num
             ws1.cell(row=7, column=4, value="=C7/B7").font = font_bold_num; ws1.cell(row=7, column=4).number_format = '0.00%'
@@ -197,14 +189,16 @@ if detail_file is not None and extension_file is not None:
             ws1.cell(row=3, column=9, value="最终成功接通").font = font_header; ws1.cell(row=3, column=9).border = thin_border
             ws1.cell(row=3, column=10, value='=COUNTIF(云总机通话详单!$AM:$AM, "是")').font = font_bold_num; ws1.cell(row=3, column=10).border = thin_border; ws1.cell(row=3, column=10).alignment = align_center
             
+            # 📌 完整重组右侧流向池（行号顺移，把“客人主动挂断”插入进 I9）
             flows = [
-                ("AI接通", "进入AI后，AI直接完成，未转接人工", '=COUNTIF(云总机通话详单!$AN:$AN, "进入AI后，AI直接完成，未转接人工")'),
-                ("人工未接通", "AI接通，转接人工，人工未接通", '=COUNTIF(云总机通话详单!$AN:$AN, "AI接通，转接人工，人工未接通")'),
-                ("人工未接通", "直接进入人工且最终未接通", '=COUNTIF(云总机通话详单!$AN:$AN, "直接进入人工且最终未接通")'),
-                ("人工接通", "进入AI后，再转接人工，且人工接通", '=COUNTIF(云总机通话详单!$AN:$AN, "进入AI后，再转接人工，且人工接通")'),
-                ("人工接通", "直接进入人工，且人工接通", '=COUNTIF(云总机通话详单!$AN:$AN, "直接进入人工，且人工接通")'),
-                ("异常", "异常", '=COUNTIF(云总机通话详单!$AN:$AN, "异常")'),
-                ("总来电量", "总来电量", "=SUM(J4:J9)")
+                ("AI接通", "进入AI后，AI直接完成，未转接人工", '=COUNTIF(云总机通话详单!$AN:$AN, "进入AI后，AI直接完成，未转接人工")'), # J4
+                ("人工未接通", "AI接通，转接人工，人工未接通", '=COUNTIF(云总机通话详单!$AN:$AN, "AI接通，转接人工，人工未接通")'), # J5
+                ("人工未接通", "直接进入人工且最终未接通", '=COUNTIF(云总机通话详单!$AN:$AN, "直接进入人工且最终未接通")'), # J6
+                ("人工接通", "进入AI后，再转接人工，且人工接通", '=COUNTIF(云总机通话详单!$AN:$AN, "进入AI后，再转接人工，且人工接通")'), # J7
+                ("人工接通", "直接进入人工，且人工接通", '=COUNTIF(云总机通话详单!$AN:$AN, "直接进入人工，且人工接通")'), # J8
+                ("客人主动挂断", "客人主动挂断", '=COUNTIF(云总机通话详单!$AN:$AN, "客人主动挂断")'),                    # J9 (新增补充位置)
+                ("异常", "异常", '=COUNTIF(云总机通话详单!$AN:$AN, "异常")'),                                            # J10
+                ("总来电量", "总来电量", "=SUM(J4:J10)")                                                                  # J11
             ]
             
             for idx, (grp, name, formula) in enumerate(flows):
@@ -269,9 +263,9 @@ if detail_file is not None and extension_file is not None:
         
         st.markdown("---")
         st.download_button(
-            label=f"📥 导出【{detected_date_range}】终极版运营报告",
+            label=f"📥 导出【{detected_date_range}】全指标闭环版报告",
             data=excel_data,
-            file_name=f"酒店AI运营报告【{detected_date_range}动态平账版】.xlsx",
+            file_name=f"酒店AI运营报告【{detected_date_range}流程全覆盖版】.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
         
