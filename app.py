@@ -283,4 +283,13 @@ if detail_file is not None and extension_file is not None:
         
         st.markdown("---")
         st.download_button(
-            label
+            label="📥 导出终极对齐版：内置 COUNTIF 公式多 Sheet 智能运营报告",
+            data=excel_data,
+            file_name="酒店AI运营报告【原生公式对齐完美版】.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+        
+    except Exception as e:
+        st.error(f"处理数据时发生异常: {e}")
+else:
+    st.info("💡 请在上方同时上传【云总机通话详单】与【分机号表】以激活原生公式多Sheet自动化分析。")
