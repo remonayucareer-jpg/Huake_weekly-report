@@ -6,7 +6,7 @@ from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 
 st.set_page_config(page_title="酒店AI运营报告自动化工具", layout="wide")
 
-st.title("🏨 酒店AI运营报告数据自动化统计系统 
+st.title("🏨 酒店AI运营报告数据自动化统计系统 ")
 st.markdown("上传原始导出的**云总机通话详单**和**分机号**表格，系统将自动清洗数据，在网页端展示所有计算过程指标，并 1:1 导出无公式的纯净周报 Excel。")
 
 # 1. 文件上传区
