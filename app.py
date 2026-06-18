@@ -117,59 +117,54 @@ if detail_file is not None and extension_file is not None:
         m4.metric("🤝 4. AI转人工接通成功", f"{v_ai_to_human_success} 次")
         m5.metric("📞 5. 直接进人工且接通", f"{v_direct_human_success} 次")
 
-        # 6. 【重磅大微调】：像素级 1:1 克隆模板 Excel
+        # 6. 安全安全的 1:1 高保真 Excel 生成逻辑
         def generate_perfect_excel():
             wb = Workbook()
             ws = wb.active
             ws.title = "运营第一周【0605-0611】"
-            ws.views.sheetView[0].showGridLines = True # 保留 Excel 灰色底纹网格
+            ws.views.sheetView[0].showGridLines = True # 保留默认网格线
             
-            # 标准微软雅黑字型分级
+            # 字体与格式配置
             font_title = Font(name="微软雅黑", size=11, bold=True, color="000000")
             font_body = Font(name="微软雅黑", size=10, color="000000")
             font_header = Font(name="微软雅黑", size=10, bold=True, color="000000")
             font_bold_num = Font(name="微软雅黑", size=10, bold=True, color="000000")
             
-            # 标准配色方案
-            fill_part = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid") # 通栏大标题淡蓝
-            fill_gray = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid") # 表头浅灰
+            fill_part = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid") # PART蓝
+            fill_gray = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid") # 表头灰
             
             align_center_wrap = Alignment(horizontal="center", vertical="center", wrap_text=True)
             align_left_wrap = Alignment(horizontal="left", vertical="center", wrap_text=True)
             
-            # 高清网格细边框
             thin_border = Border(
                 left=Side(style='thin', color='D9D9D9'), right=Side(style='thin', color='D9D9D9'),
                 top=Side(style='thin', color='D9D9D9'), bottom=Side(style='thin', color='D9D9D9')
             )
             
-            # 辅助函数：专门用来给【合并完的通栏大条】整体上色，消灭格子之间的断裂感
-            def color_merged_row(row_idx, max_col, fill_obj):
-                for col_idx in range(1, max_col + 1):
-                    ws.cell(row=row_idx, column=col_idx).fill = fill_obj
-
-            # -----------------[ 严格对齐标准模板网格坐标 ]-----------------
+            # -----------------[ 严格执行：先染色打底，后执行合并 ]-----------------
             
-            # 1. 顶部周期
+            # Row 1: 数据周期
             ws.cell(row=1, column=2, value="数据周期：0605-0611").font = font_body
             
-            # 2. PART 1 区域
-            ws.merge_cells('B3:F3') # B3到F3合并
-            color_merged_row(3, 6, fill_part)
+            # ===== PART 1 =====
+            # Row 3 通栏：先从 B 列到 F 列循环涂上漂亮的蓝色底色
+            for c in range(2, 7):
+                ws.cell(row=3, column=c).fill = fill_part
             ws.cell(row=3, column=2, value="PART1：酒店电话数据").font = font_title
             ws.cell(row=3, column=2).alignment = align_left_wrap
+            ws.merge_cells('B3:F3') # 染色完毕后，安全合并！
             
-            # 总来电量：A4和B4合并！文字塞进去，数字锁在 C4
-            ws.merge_cells('B4:C4')
+            # Row 4: 总来电量
             ws.cell(row=4, column=2, value="总来电量\n（所有启用AI的客房呼出的电话量）").alignment = align_left_wrap
             ws.cell(row=4, column=2).font = font_body
-            ws.cell(row=4, column=4, value=int(total_calls)).alignment = align_center_wrap # 数字在D4
+            ws.cell(row=4, column=4, value=int(total_calls)).alignment = align_center_wrap
             ws.cell(row=4, column=4).font = font_bold_num
-            # 刷上框线
+            # 补齐边框
             for c in range(2, 5): 
                 ws.cell(row=4, column=c).border = thin_border
+            ws.merge_cells('B4:C4') # 安全合并描述格子
             
-            # AI 电话大盘表头 (B6 - F6)
+            # Row 6: AI 电话大盘表头 (B6 - F6)
             headers_r6 = ["进入AI电话量", "AI接通量", "AI接通率\n（AI接通量/进入AI电话量）", "整体电话接通率\n（切换AI后）", "整体电话接通率\n（切换AI前）"]
             for idx, text in enumerate(headers_r6):
                 col = idx + 2
@@ -179,7 +174,7 @@ if detail_file is not None and extension_file is not None:
                 cell.alignment = align_center_wrap
                 cell.border = thin_border
                 
-            # AI 数据实体 (B7 - F7)
+            # Row 7: AI 数据实体 (B7 - F7)
             r7_vals = [int(enter_ai), int(ai_connected), ai_rate, overall_rate_after, overall_rate_before]
             for idx, val in enumerate(r7_vals):
                 col = idx + 2
@@ -190,7 +185,7 @@ if detail_file is not None and extension_file is not None:
                 if idx >= 2:
                     cell.number_format = '0.00%'
                     
-            # 人工数据大盘表头 (B8 - D8) —— D、E列无任何边框和底色
+            # Row 8: 人工数据大盘表头 (B8 - D8)
             headers_r8 = ["进入人工电话量", "人工接通量", "人工接通率\n（人工接通量/进入人工电话量)"]
             for idx, text in enumerate(headers_r8):
                 col = idx + 2
@@ -200,7 +195,7 @@ if detail_file is not None and extension_file is not None:
                 cell.alignment = align_center_wrap
                 cell.border = thin_border
                 
-            # 人工数据实体 (B9 - D9) —— 剥离右侧多余格子的框线
+            # Row 9: 人工数据实体 (B9 - D9) —— E, F列干净不画线
             r9_vals = [int(enter_human), int(human_connected), human_rate]
             for idx, val in enumerate(r9_vals):
                 col = idx + 2
@@ -211,40 +206,41 @@ if detail_file is not None and extension_file is not None:
                 if idx == 2:
                     cell.number_format = '0.00%'
 
-            # 3. PART 2 区域
-            ws.merge_cells('B11:F11') # 彻底合并通栏
-            color_merged_row(11, 6, fill_part)
+            # ===== PART 2 =====
+            # Row 11 通栏：先涂蓝色底
+            for c in range(2, 7):
+                ws.cell(row=11, column=c).fill = fill_part
             ws.cell(row=11, column=2, value="PART2：AI能力数据").font = font_title
             ws.cell(row=11, column=2).alignment = align_left_wrap
+            ws.merge_cells('B11:F11') # 安全合并
             
-            # AI能力三大指标：B合并，结果塞在 D 列
+            # Row 12 - 14: 三大指标指标项
             p2_rows = [
                 (12, "AI来电承接率\n(AI接通量/总来电量)", ai_accept_rate),
                 (13, "AI处理参与率\n（AI独立解决+AI按用户意愿转接的电话量/AI接通量）", ai_participation_rate),
                 (14, "AI独立解决率\n（AI独立解决电话量/AI接通量）", ai_independent_rate)
             ]
             for r, desc, val in p2_rows:
-                ws.merge_cells(f'B{r}:C{r}')
-                c_desc = ws.cell(row=r, column=2, value=desc)
-                c_val = ws.cell(row=r, column=4, value=val)
+                ws.cell(row=r, column=2, value=desc).alignment = align_left_wrap
+                ws.cell(row=r, column=2).font = font_body
+                ws.cell(row=r, column=4, value=val).alignment = align_center_wrap
+                ws.cell(row=r, column=4).font = font_bold_num
+                ws.cell(row=r, column=4).number_format = '0.00%'
                 
-                c_desc.alignment = align_left_wrap
-                c_val.alignment = align_center_wrap
-                c_desc.font = font_body
-                c_val.font = font_bold_num
-                
-                c_val.number_format = '0.00%'
                 for c in range(2, 5):
                     ws.cell(row=r, column=c).border = thin_border
+                ws.merge_cells(f'B{r}:C{r}') # 框线画完再合并描述
                     
-            # 4. PART 3 区域
-            ws.merge_cells('B16:F16') # 合并通栏
-            color_merged_row(16, 6, fill_part)
+            # ===== PART 3 =====
+            # Row 16 通栏：先涂蓝色底
+            for c in range(2, 7):
+                ws.cell(row=16, column=c).fill = fill_part
             ws.cell(row=16, column=2, value="PART3：酒店工单数据").font = font_title
             ws.cell(row=16, column=2).alignment = align_left_wrap
-            ws.cell(row=16, column=3, value="本店超时设置为15分钟").font = font_body
+            ws.cell(row=16, column=4, value="本店超时设置为15分钟").font = font_body # 放在D列提示，不干扰左边
+            ws.merge_cells('B16:C16') # 局部合并保护提示语
             
-            # 工单表头 (B17 - D17)
+            # Row 17: 工单表头 (B17 - D17)
             headers_r17 = ["AI服务工单数\n（AI生成的服务工单数）", "超时处理工单数\n（超时领取或完成的工单数）", "服务工单超时率\n（超时处理工单数/AI服务工单数）"]
             for idx, text in enumerate(headers_r17):
                 col = idx + 2
@@ -254,7 +250,7 @@ if detail_file is not None and extension_file is not None:
                 cell.alignment = align_center_wrap
                 cell.border = thin_border
                 
-            # 工单数据实体 (B18 - D18) —— 右侧 E, F 无框线
+            # Row 18: 工单数据实体 (B18 - D18) —— E, F列干净不画线
             r18_vals = [int(total_tickets), int(overtime_tickets), ticket_overtime_rate]
             for idx, val in enumerate(r18_vals):
                 col = idx + 2
@@ -265,7 +261,7 @@ if detail_file is not None and extension_file is not None:
                 if idx == 2:
                     cell.number_format = '0.00%'
 
-            # -----------------[ 行高与列宽 像素级调配 ]-----------------
+            # -----------------[ 精准行高与列宽 ]-----------------
             ws.row_dimensions[3].height = 24
             ws.row_dimensions[4].height = 36
             ws.row_dimensions[6].height = 32
@@ -280,13 +276,13 @@ if detail_file is not None and extension_file is not None:
             ws.row_dimensions[17].height = 32
             ws.row_dimensions[18].height = 24
             
-            # 黄金比例宽度配置（把 A 列缩窄成纯白隔离带，数据和文本完全搬入 B, C, D, E, F 列坐标系）
-            ws.column_dimensions['A'].width = 3   # 极其窄小的隔离带
-            ws.column_dimensions['B'].width = 24  # 核心描述左半截
-            ws.column_dimensions['C'].width = 24  # 核心描述右半截（B+C 合并后宽 48，吞下所有描述）
-            ws.column_dimensions['D'].width = 18  # 数字与率实体列
-            ws.column_dimensions['E'].width = 24
-            ws.column_dimensions['F'].width = 24
+            # 锁定黄金列宽
+            ws.column_dimensions['A'].width = 3.5 # 左侧极窄呼吸留白带
+            ws.column_dimensions['B'].width = 24  # 描述左半截
+            ws.column_dimensions['C'].width = 24  # 描述右半截 (合并后宽48，极致吞吐换行长字)
+            ws.column_dimensions['D'].width = 18  # 核心数字和百分比列
+            ws.column_dimensions['E'].width = 24  # AI右侧侧翼大盘
+            ws.column_dimensions['F'].width = 24  # AI右侧侧翼大盘
             
             output = io.BytesIO()
             wb.save(output)
@@ -299,7 +295,7 @@ if detail_file is not None and extension_file is not None:
         st.download_button(
             label="📥 点击下载 1:1 纯净高保真周报 Excel（纯实体、无公式）",
             data=excel_data,
-            file_name="长沙延年檀香山酒店-AI运营报告【纯净版】.xlsx",
+            file_name="长沙延年檀香山酒店-AI运营报告【高保真复刻版】.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
         
