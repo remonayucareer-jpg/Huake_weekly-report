@@ -262,6 +262,23 @@ if detail_file is not None and extension_file is not None:
             return output
 
         excel_data = generate_formula_excel(detected_date_range)
+
+        # 🛠️ 网页端【内鬼探测器】组件（排查完毕后可随时删掉）
+        st.markdown("### 🔍 诊断工具：平账内鬼探测器")
+        
+        # 看看代码判定为“是”的总行数
+        code_yes_df = df_valid[df_valid['最终成功接通'] == "是"]
+        st.write(f"代码当前清洗出『最终成功接通』为“是”的记录共：**{len(code_yes_df)}** 条")
+        
+        # 1. 帮你想看看是不是 00:00:00 的问题
+        zero_duration = code_yes_df[code_yes_df['通话时长'].astype(str).str.strip() == "00:00:00"]
+        if len(zero_duration) > 0:
+            st.warning(f"🚨 发现了 {len(zero_duration)} 条通话状态为接通、但时长为 00:00:00 的记录！")
+            st.dataframe(zero_duration[['主叫号码', '呼叫时间', '通话状态', '通话时长']])
+        
+        # 2. 提供一个快速预览，你可以拿去和模版里筛选出的 246 条做比对
+        with st.expander("点击展开：查看代码判定为『是』的所有数据清单（可用来和模版对齐）"):
+            st.dataframe(code_yes_df[['主叫号码', '呼叫时间', '通话状态', '通话时长', '接通方式']])
         
         st.markdown("---")
         st.download_button(
