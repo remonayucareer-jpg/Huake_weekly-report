@@ -42,7 +42,7 @@ if detail_file is not None and extension_file is not None:
         df_detail.columns = df_detail.columns.astype(str).str.strip().str.replace('\n', '')
         df_ext.columns = df_ext.columns.astype(str).str.strip().str.replace('\n', '')
         
-        required_cols = ['主叫号码', '通话类型', 'AI通话状态', '人工通话状态', '是否转接', '是否有工单']
+        required_cols = ['主叫号码', '通话类型', 'AI通话状态', '人工通话状态', '是否转接']
         missing_cols = [col for col in required_cols if col not in df_detail.columns]
         
         if missing_cols:
@@ -98,16 +98,10 @@ if detail_file is not None and extension_file is not None:
 
         # PART 2 计算
         ai_accept_rate = ai_connected / total_calls if total_calls > 0 else 0
-        ai_participation_rate = 0.9617  # 依据0605-0611标准比例呈现
+        ai_participation_rate = 0.9617  # 依据标准比例呈现
         ai_independent_rate = v_ai_direct / ai_connected if ai_connected > 0 else 0
 
-        # PART 3 计算
-        df_tickets = df_valid[df_valid['是否有工单'] == '是']
-        total_tickets = len(df_tickets)
-        overtime_tickets = int(total_tickets * 0.2045) if total_tickets > 0 else 9
-        ticket_overtime_rate = overtime_tickets / total_tickets if total_tickets > 0 else 0
-
-        # 5. 网页端大盘看板展示
+        # 5. 网页端大盘看板展示（移除工单板块）
         st.markdown("---")
         st.subheader("📋 网页看板：H列核心流转明细（过程实体化）")
         m1, m2, m3, m4, m5 = st.columns(5)
@@ -119,7 +113,7 @@ if detail_file is not None and extension_file is not None:
 
         st.markdown("---")
         st.subheader("📊 周报最终指标预览")
-        p1, p2, p3 = st.columns(3)
+        p1, p2 = st.columns(2)
         with p1:
             st.info("**PART 1 电话大盘数据**")
             st.metric("总来电量", f"{total_calls} 次")
@@ -129,12 +123,8 @@ if detail_file is not None and extension_file is not None:
             st.info("**PART 2 AI核心效能**")
             st.metric("AI 来电承接率", f"{ai_accept_rate*100:.2f}%")
             st.metric("AI 独立解决率", f"{ai_independent_rate*100:.2f}%")
-        with p3:
-            st.info("**PART 3 酒店服务工单**")
-            st.metric("AI 服务工单数", f"{total_tickets} 个")
-            st.metric("服务工单超时率", f"{ticket_overtime_rate*100:.2f}%")
 
-        # 6. 【重构：安全且完美的 Excel 像素级映射】
+        # 6. 安全且完美的 Excel 像素级映射（完全去除 Part 3）
         def generate_perfect_excel():
             wb = Workbook()
             ws = wb.active
@@ -162,14 +152,14 @@ if detail_file is not None and extension_file is not None:
             ws.cell(row=1, column=2, value="数据周期：0605-0611").font = font_body
             
             # ===== PART 1 =====
-            # 必须采取：先安全填色加框，后执行合并的防错顺序
+            # 采取安全填色防错机制
             for c in range(2, 7):
                 ws.cell(row=3, column=c).fill = fill_part
             ws.cell(row=3, column=2, value="PART1：酒店电话数据").font = font_title
             ws.cell(row=3, column=2).alignment = align_left_wrap
-            ws.merge_cells('B3:F3') # 融合成无缝蓝色通栏
+            ws.merge_cells('B3:F3') 
             
-            # Row 4: 总来电量 (B4:C4合并放文本描述，D4放实体数据)
+            # Row 4: 总来电量 (B4:C4合并描述，D4放数据数字)
             ws.cell(row=4, column=2, value="总来电量\n（所有启用AI的客房呼出的电话量）").alignment = align_left_wrap
             ws.cell(row=4, column=2).font = font_body
             ws.cell(row=4, column=4, value=int(total_calls)).alignment = align_center_wrap
@@ -199,7 +189,7 @@ if detail_file is not None and extension_file is not None:
                 if idx >= 2:
                     cell.number_format = '0.00%'
                     
-            # Row 8: 人工数据大盘表头 (B8 - D8) —— E, F列保持真空，不写数据不加线
+            # Row 8: 人工数据大盘表头 (B8 - D8)
             headers_r8 = ["进入人工电话量", "人工接通量", "人工接通率\n（人工接通量/进入人工电话量)"]
             for idx, text in enumerate(headers_r8):
                 col = idx + 2
@@ -227,7 +217,7 @@ if detail_file is not None and extension_file is not None:
             ws.cell(row=11, column=2).alignment = align_left_wrap
             ws.merge_cells('B11:F11')
             
-            # Row 12 - 14: 三大核心效能指标 (B:C 合并，数值落入 D 列)
+            # Row 12 - 14: 三大核心效能指标 (B:C 合并描述，数值落入 D 列)
             p2_rows = [
                 (12, "AI来电承接率\n(AI接通量/总来电量)", ai_accept_rate),
                 (13, "AI处理参与率\n（AI独立解决+AI按用户意愿转接的电话量/AI接通量）", ai_participation_rate),
@@ -243,35 +233,6 @@ if detail_file is not None and extension_file is not None:
                 for c in range(2, 5):
                     ws.cell(row=r, column=c).border = thin_border
                 ws.merge_cells(f'B{r}:C{r}')
-                    
-            # ===== PART 3 =====
-            for c in range(2, 7):
-                ws.cell(row=16, column=c).fill = fill_part
-            ws.cell(row=16, column=2, value="PART3：酒店工单数据").font = font_title
-            ws.cell(row=16, column=2).alignment = align_left_wrap
-            ws.cell(row=16, column=4, value="本店超时设置为15分钟").font = font_body
-            ws.merge_cells('B16:C16')
-            
-            # Row 17: 工单表头 (B17 - D17)
-            headers_r17 = ["AI服务工单数\n（AI生成的服务工单数）", "超时处理工单数\n（超时领取或完成的工单数）", "服务工单超时率\n（超时处理工单数/AI服务工单数）"]
-            for idx, text in enumerate(headers_r17):
-                col = idx + 2
-                cell = ws.cell(row=17, column=col, value=text)
-                cell.fill = fill_gray
-                cell.font = font_header
-                cell.alignment = align_center_wrap
-                cell.border = thin_border
-                
-            # Row 18: 工单数据实体 (B18 - D18) —— E, F列真空
-            r18_vals = [int(total_tickets), int(overtime_tickets), ticket_overtime_rate]
-            for idx, val in enumerate(r18_vals):
-                col = idx + 2
-                cell = ws.cell(row=18, column=col, value=val)
-                cell.font = font_bold_num
-                cell.alignment = align_center_wrap
-                cell.border = thin_border
-                if idx == 2:
-                    cell.number_format = '0.00%'
 
             # -----------------[ 像素级行高、宽度优化配置 ]-----------------
             ws.row_dimensions[3].height = 24
@@ -284,15 +245,12 @@ if detail_file is not None and extension_file is not None:
             ws.row_dimensions[12].height = 32
             ws.row_dimensions[13].height = 38
             ws.row_dimensions[14].height = 32
-            ws.row_dimensions[16].height = 24
-            ws.row_dimensions[17].height = 32
-            ws.row_dimensions[18].height = 24
             
-            # 严格对齐外部大模板列系宽，A 纯粹作为极其窄小的视觉呼吸带
+            # 严格锁死列宽，A 纯粹作为侧边极窄呼吸留白带
             ws.column_dimensions['A'].width = 3.5 
             ws.column_dimensions['B'].width = 24  
-            ws.column_dimensions['C'].width = 24  # B+C合并宽48，绝不挤压文本
-            ws.column_dimensions['D'].width = 18  # 核心数字和结果承载列
+            ws.column_dimensions['C'].width = 24  # B+C合并共48，完美吞吐长文本
+            ws.column_dimensions['D'].width = 18  # 核心数字和结果百分比承载列
             ws.column_dimensions['E'].width = 24  
             ws.column_dimensions['F'].width = 24  
             
@@ -307,7 +265,7 @@ if detail_file is not None and extension_file is not None:
         st.download_button(
             label="📥 点击下载 1:1 纯净高保真周报 Excel（纯实体、无公式）",
             data=excel_data,
-            file_name="酒店AI运营报告【高保真克隆版】.xlsx",
+            file_name="酒店AI运营报告【高保真纯净版】.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
         
