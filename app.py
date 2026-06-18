@@ -6,10 +6,10 @@ from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 
 st.set_page_config(page_title="酒店AI运营报告自动化工具", layout="wide")
 
-st.title("🏨 酒店AI运营报告数据自动化统计系统 (公式像素级复刻版)")
-st.markdown("已根据原始 Excel 嵌套 IF 逻辑重构判定矩阵，彻底解决 197 与 198 两表打架的内鬼数据。")
+st.title("🏨 酒店AI运营报告数据自动化统计系统 (大盘核心公式校准版)")
+st.markdown("已完全按照反馈的原始公式重构大盘：进入AI/AI接通量1:1绑定COUNTIFS，成功接通绑定COUNTIF。")
 
-col1, col2 = col.columns(2) if 'col' in locals() else st.columns(2)
+col1, col2 = st.columns(2)
 with col1:
     detail_file = st.file_uploader("1. 上传【云总机通话详单】", type=["xlsx", "xls"])
 with col2:
@@ -55,35 +55,28 @@ if detail_file is not None and extension_file is not None:
         
         df_detail['房间是否接入AI'] = df_detail['主叫号码_clean'].map(ext_dict)
         
-        # 保留所有接入AI客房呼入的数据
+        # 严格过滤属于呼入的记录
         df_valid = df_detail[df_detail['房间是否接入AI'].notna() & (df_detail['通话类型'] == '呼入')].copy()
         
-        # 📌 1:1 像素级复刻 Excel 嵌套 IF 逻辑函数
+        # 1:1 复刻 Excel 嵌套 IF 逻辑函数
         def excel_nested_if_logic(row):
             al = str(row['房间是否接入AI']).strip()
             m = str(row['通话状态']).strip()
             n = str(row['AI通话状态']).strip()
             o = str(row['人工通话状态']).strip()
             
-            # 条件1：进入AI后，再转接人工，且人工接通
             if al == "客房" and m == "接通" and n == "接通" and o == "接通":
                 return "进入AI后，再转接人工，且人工接通"
-            # 条件2：AI接通，转接人工，人工未接通
             elif al == "客房" and m == "接通" and n == "接通" and o == "未接通":
                 return "AI接通，转接人工，人工未接通"
-            # 条件3：进入AI后，AI直接完成，未转接人工
             elif al == "客房" and m == "接通" and n == "接通" and o == "--":
                 return "进入AI后，AI直接完成，未转接人工"
-            # 条件4：直接进入人工，且人工接通
             elif al == "客房" and m == "接通" and n == "--" and o == "接通":
                 return "直接进入人工，且人工接通"
-            # 条件5：客人主动挂断
             elif al == "客房" and m == "未接通" and n == "--" and o == "--":
                 return "客人主动挂断"
-            # 条件6：直接进入人工且最终未接通
             elif al == "客房" and m == "未接通" and n == "--" and o == "未接通":
                 return "直接进入人工且最终未接通"
-            # 兜底：异常
             else:
                 return "异常"
 
@@ -93,12 +86,11 @@ if detail_file is not None and extension_file is not None:
         df_valid['呼叫所在日期'] = df_valid['呼叫时间'].astype(str).apply(lambda x: x.split()[0] if len(x.split())>0 else '')
         df_valid['呼叫所在小时'] = df_valid['呼叫时间'].astype(str).apply(lambda x: x.split()[1].split(':')[0] if len(x.split())>1 and ':' in x.split()[1] else '')
 
-        st.success("📊 过滤矩阵已完成 1:1 Excel 公式逻辑映射！")
+        st.success("📊 数据链条清洗完毕，准备写入 Excel 公式！")
 
         def generate_formula_excel():
             wb = Workbook()
             ws1 = wb.active
-            ws1.title = "电话 data"
             ws1.title = "电话数据"
             ws1.views.sheetView[0].showGridLines = True
             
@@ -133,15 +125,15 @@ if detail_file is not None and extension_file is not None:
                 cell = ws1.cell(row=6, column=idx+2, value=text)
                 cell.fill = fill_gray; cell.font = font_header; cell.alignment = align_center; cell.border = thin_border
             
-            # 📌 完美修正左侧大盘统计逻辑：进入AI与AI接通量必须通过右侧分类池流转结果反算，确保大盘与明细账彻底平账，不被异形内鬼数据干扰
-            ws1.cell(row=7, column=2, value='=J4+J5').font = font_bold_num
-            ws1.cell(row=7, column=3, value='=J4+J5').font = font_bold_num
+            # 📌 终极校准：完全按照反馈的要求，直接复刻 COUNTIFS 公式拉取详单数据
+            ws1.cell(row=7, column=2, value='=COUNTIFS(云总机通话详单!$N:$N, "接通", 云总机通话详单!$AL:$AL, "客房")').font = font_bold_num
+            ws1.cell(row=7, column=3, value='=COUNTIFS(云总机通话详单!$N:$N, "接通", 云总机通话详单!$AL:$AL, "客房")').font = font_bold_num
             ws1.cell(row=7, column=4, value="=C7/B7").font = font_bold_num; ws1.cell(row=7, column=4).number_format = '0.00%'
             ws1.cell(row=7, column=5, value="=J3/D4").font = font_bold_num; ws1.cell(row=7, column=5).number_format = '0.00%'
             ws1.cell(row=7, column=6, value=0.967).font = font_bold_num; ws1.cell(row=7, column=6).number_format = '0.00%'
             for c in range(2, 7): ws1.cell(row=7, column=c).alignment = align_center; ws1.cell(row=7, column=c).border = thin_border
             
-            # 人工指标区
+            # 人工指标区 (依然保留公式兼容)
             headers_r8 = ["进入人工电话量", "人工接通量", "人工接通率\n（人工接通量/进入人工电话量)"]
             for idx, text in enumerate(headers_r8):
                 cell = ws1.cell(row=8, column=idx+2, value=text)
@@ -152,7 +144,7 @@ if detail_file is not None and extension_file is not None:
             ws1.cell(row=9, column=4, value="=C9/B9").font = font_bold_num; ws1.cell(row=9, column=4).number_format = '0.00%'
             for c in range(2, 5): ws1.cell(row=9, column=c).alignment = align_center; ws1.cell(row=9, column=c).border = thin_border
 
-            # PART 2
+            # PART 2：AI能力数据
             for c in range(2, 7): ws1.cell(row=11, column=c).fill = fill_part
             ws1.cell(row=11, column=2, value="PART2：AI能力数据").font = font_title
             ws1.merge_cells('B11:F11')
@@ -170,7 +162,7 @@ if detail_file is not None and extension_file is not None:
                 for c in range(2, 5): ws1.cell(row=r, column=c).border = thin_border
                 ws1.merge_cells(f'B{r}:C{r}')
 
-            # 右侧流程池核心映射
+            # 📌 右侧流程池核心映射：最终成功接通完全按照要求绑定为对 AM 列的唯一 COUNTIF 计数
             ws1.cell(row=3, column=9, value="最终成功接通").font = font_header; ws1.cell(row=3, column=9).border = thin_border
             ws1.cell(row=3, column=10, value='=COUNTIF(云总机通话详单!$AM:$AM, "是")').font = font_bold_num; ws1.cell(row=3, column=10).border = thin_border; ws1.cell(row=3, column=10).alignment = align_center
             
@@ -246,9 +238,9 @@ if detail_file is not None and extension_file is not None:
         
         st.markdown("---")
         st.download_button(
-            label="📥 导出跟嵌套IF完美闭环的终极报告",
+            label="📥 导出最终校准版运营报告",
             data=excel_data,
-            file_name="酒店AI运营报告【逻辑平账修复版】.xlsx",
+            file_name="酒店AI运营报告【大盘公式终极校准版】.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
         
