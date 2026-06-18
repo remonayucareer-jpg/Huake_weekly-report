@@ -3,13 +3,13 @@ import pandas as pd
 import io
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+from openpyxl.utils import get_column_letter
 
 st.set_page_config(page_title="酒店AI运营报告自动化工具", layout="wide")
 
-st.title("🏨 酒店AI运营报告数据自动化统计系统 (标准对齐版)")
-st.markdown("已彻底重构大盘内置公式与右侧流转明细的映射关系，实现数据 1:1 精准闭合。")
+st.title("🏨 酒店AI运营报告数据自动化统计系统 (像素级像素对齐版)")
+st.markdown("已攻克【状态文字接通但时长为0】、【转接列为空但IVR实际转人工】等系统隐蔽特征，并实现动态列公式绑定。")
 
-# 文件上传
 col1, col2 = st.columns(2)
 with col1:
     detail_file = st.file_uploader("1. 上传【云总机通话详单】", type=["xlsx", "xls"])
@@ -40,7 +40,7 @@ if detail_file is not None and extension_file is not None:
         df_detail.columns = df_detail.columns.astype(str).str.strip().str.replace('\n', '')
         df_ext.columns = df_ext.columns.astype(str).str.strip().str.replace('\n', '')
         
-        required_cols = ['主叫号码', '通话类型', 'AI通话状态', '人工通话状态', '是否转接', '呼叫时间', '通话状态']
+        required_cols = ['主叫号码', '通话类型', 'AI通话状态', '人工通话状态', '是否转接', '呼叫时间', '通话状态', '通话时长']
         missing_cols = [col for col in required_cols if col not in df_detail.columns]
         
         if missing_cols:
@@ -57,60 +57,73 @@ if detail_file is not None and extension_file is not None:
         df_detail['房间是否接入AI'] = df_detail['主叫号码_clean'].map(ext_dict)
         df_valid = df_detail[df_detail['房间是否接入AI'].notna() & (df_detail['通话类型'] == '呼入')].copy()
         
-        # 📌 重新校准的纯净流转流判定矩阵
+        # 📌 针对云总机隐藏Bug重构的终极过滤矩阵
         def classify_call_flow(row):
             ai = str(row['AI通话状态']).strip()
             human = str(row['人工通话状态']).strip()
             forward = str(row['是否转接']).strip()
             status = str(row['通话状态']).strip()
+            duration = str(row['通话时长']).strip()
             
-            # 1. 优先提取【异常情况】
-            if ai in ['--', 'nan', ''] and human in ['--', 'nan', ''] and status != '接通':
+            # 辅助判定：人工或整通电话是否真的有声音接通
+            is_human_real_connected = (human == '接通') and (duration != '00:00:00' and duration != '0s' and duration != '0')
+            is_global_real_connected = (status == '接通') and (duration != '00:00:00' and duration != '0s' and duration != '0')
+
+            # 1. 严格提取【异常】
+            if ai in ['--', 'nan', ''] and human in ['--', 'nan', ''] and not is_global_real_connected:
                 return "异常"
             
-            # 2. 凡是发生了转接动作的（不论系统里AI状态显示为什么）
-            if forward == '是':
-                if human == '接通' or status == '接通':
+            # 2. 判定进入AI的链路 (只要AI成功接起来过，或者明确走AI路径)
+            if ai == '接通':
+                if forward == '是':
+                    if is_human_real_connected or is_global_real_connected:
+                        return "进入AI后，再转接人工，且人工接通"
+                    else:
+                        return "AI接通，转接人工，人工未接通"
+                else: # 没有转接动作
+                    return "进入AI后，AI直接完成，未转接人工"
+            
+            # 3. 补漏：系统转人工时有时会抹除AI接通状态，通过转接标志回溯
+            if forward == '是' and ai in ['--', 'nan', '', '未接通']:
+                if is_human_real_connected or is_global_real_connected:
                     return "进入AI后，再转接人工，且人工接通"
                 else:
                     return "AI接通，转接人工，人工未接通"
-            
-            # 3. 未发生转接动作的
-            if forward == '否' or forward in ['--', 'nan', '']:
-                if ai == '接通':
-                    return "进入AI后，AI直接完成，未转接人工"
-                elif human == '接通' or status == '接通':
+
+            # 4. 未进AI，直接走人工路由的电话
+            if ai in ['--', 'nan', '', '未接通']:
+                if is_human_real_connected or is_global_real_connected:
                     return "直接进入人工，且人工接通"
                 else:
                     return "直接进入人工且最终未接通"
             
             return "其他/挂断"
 
-        df_valid['最终成功接通'] = df_valid['通话状态'].apply(lambda x: "是" if str(x).strip() == "接通" else "否")
+        df_valid['最终成功接通'] = df_valid.apply(lambda r: "是" if str(r['通话状态']).strip() == "接通" and str(r['通话时长']).strip() != "00:00:00" else "否", axis=1)
         df_valid['接通方式'] = df_valid.apply(classify_call_flow, axis=1)
         
         df_valid['呼叫所在日期'] = df_valid['呼叫时间'].astype(str).apply(lambda x: x.split()[0] if len(x.split())>0 else '')
         df_valid['呼叫所在小时'] = df_valid['呼叫时间'].astype(str).apply(lambda x: x.split()[1].split(':')[0] if len(x.split())>1 and ':' in x.split()[1] else '')
 
-        # 网页看板实体数据
+        # 预览数字（用于校验）
         total_calls = len(df_valid)
         v_ai_direct = len(df_valid[df_valid['接通方式'] == "进入AI后，AI直接完成，未转接人工"])
-        v_ai_to_human_fail = len(df_valid[df_valid['接通方式'] == "AI接通，转接人工，人工未接通"])
-        v_direct_human_fail = len(df_valid[df_valid['接通方式'] == "直接进入人工且最终未接通"])
         v_ai_to_human_success = len(df_valid[df_valid['接通方式'] == "进入AI后，再转接人工，且人工接通"])
+        v_ai_to_human_fail = len(df_valid[df_valid['接通方式'] == "AI接通，转接人工，人工未接通"])
         v_direct_human_success = len(df_valid[df_valid['接通方式'] == "直接进入人工，且人工接通"])
+        v_direct_human_fail = len(df_valid[df_valid['接通方式'] == "直接进入人工且最终未接通"])
         v_exception = len(df_valid[df_valid['接通方式'] == "异常"])
 
-        st.success("📊 核心数据链条修正完毕！")
+        st.success("📊 过滤矩阵已完成三重联合校验清洗！")
         
-        st.subheader("📋 实时洗净数据对照")
+        st.subheader("📋 实体落表切片预览")
         m1, m2, m3, m4, m5, m6 = st.columns(6)
-        m1.metric("总来电 (实体数)", f"{total_calls} 次")
+        m1.metric("总来电量", f"{total_calls} 次")
         m2.metric("🤖 AI直接完成", f"{v_ai_direct} 次")
         m3.metric("🤝 AI转人工成功", f"{v_ai_to_human_success} 次")
         m4.metric("❌ AI转人工失败", f"{v_ai_to_human_fail} 次")
         m5.metric("📞 直接人工成功", f"{v_direct_human_success} 次")
-        m6.metric("🚨 异常挂断", f"{v_exception} 次")
+        m6.metric("🚨 异常断线", f"{v_exception} 次")
 
         def generate_formula_excel():
             wb = Workbook()
@@ -122,18 +135,24 @@ if detail_file is not None and extension_file is not None:
             font_body = Font(name="微软雅黑", size=10, color="000000")
             font_header = Font(name="微软雅黑", size=10, bold=True, color="000000")
             font_bold_num = Font(name="微软雅黑", size=10, bold=True, color="000000")
-            
             fill_part = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
             fill_gray = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
             align_center = Alignment(horizontal="center", vertical="center", wrap_text=True)
             align_left = Alignment(horizontal="left", vertical="center", wrap_text=True)
-            
             thin_border = Border(
                 left=Side(style='thin', color='D9D9D9'), right=Side(style='thin', color='D9D9D9'),
                 top=Side(style='thin', color='D9D9D9'), bottom=Side(style='thin', color='D9D9D9')
             )
             
-            # 大盘左侧框架
+            # 计算大盘公式所需的真实字母列
+            orig_headers = [c for c in list(df_detail.columns) if c != '主叫号码_clean']
+            ai_col_letter = get_column_letter(orig_headers.index('AI通话状态') + 1)
+            human_col_letter = get_column_letter(orig_headers.index('人工通话状态') + 1)
+            
+            # 追加增量列在倒数第四和第三个
+            success_col_letter = get_column_letter(len(orig_headers) + 2) # 最终成功接通
+            type_col_letter = get_column_letter(len(orig_headers) + 3)    # 接通方式
+            
             ws1.cell(row=1, column=2, value="数据周期：0605-0611").font = font_body
             for c in range(2, 7): ws1.cell(row=3, column=c).fill = fill_part
             ws1.cell(row=3, column=2, value="PART1：酒店电话数据").font = font_title
@@ -141,26 +160,26 @@ if detail_file is not None and extension_file is not None:
             
             ws1.cell(row=4, column=2, value="总来电量\n（所有启用AI的客房呼出的电话量）").alignment = align_left
             ws1.cell(row=4, column=2).font = font_body
-            ws1.cell(row=4, column=4, value="=J10").font = font_bold_num  # 直接拉取J列总和
+            ws1.cell(row=4, column=4, value="=J10").font = font_bold_num  
             ws1.cell(row=4, column=4).alignment = align_center
             for c in range(2, 5): ws1.cell(row=4, column=c).border = thin_border
             ws1.merge_cells('B4:C4')
             
-            # AI大盘指标行 (重新校准：不套壳右侧，直接穿透详单原始列判定)
+            # 大盘 AI 指标
             headers_r6 = ["进入AI电话量", "AI接通量", "AI接通率\n（AI接通量/进入AI电话量）", "整体电话接通率\n（切换AI后）", "整体电话接通率\n（切换AI前）"]
             for idx, text in enumerate(headers_r6):
                 cell = ws1.cell(row=6, column=idx+2, value=text)
                 cell.fill = fill_gray; cell.font = font_header; cell.alignment = align_center; cell.border = thin_border
             
-            # 这里的公式直接统计详单中原生记录了“接通”和“未接通”的真实行数
-            ws1.cell(row=7, column=2, value="=COUNTIF(云总机通话详单!$N:$N, \"接通\") + COUNTIF(云总机通话详单!$N:$N, \"未接通\")").font = font_bold_num
-            ws1.cell(row=7, column=3, value="=COUNTIF(云总机通话详单!$N:$N, \"接通\")").font = font_bold_num
+            # 用动态定位列重构原生大盘计数公式
+            ws1.cell(row=7, column=2, value=f'=COUNTIF(云总机通话详单!${ai_col_letter}:${ai_col_letter}, "接通") + COUNTIF(云总机通话详单!${ai_col_letter}:${ai_col_letter}, "未接通")').font = font_bold_num
+            ws1.cell(row=7, column=3, value=f'=COUNTIF(云总机通话详单!${ai_col_letter}:${ai_col_letter}, "接通")').font = font_bold_num
             ws1.cell(row=7, column=4, value="=C7/B7").font = font_bold_num; ws1.cell(row=7, column=4).number_format = '0.00%'
             ws1.cell(row=7, column=5, value="=J3/D4").font = font_bold_num; ws1.cell(row=7, column=5).number_format = '0.00%'
             ws1.cell(row=7, column=6, value=0.967).font = font_bold_num; ws1.cell(row=7, column=6).number_format = '0.00%'
             for c in range(2, 7): ws1.cell(row=7, column=c).alignment = align_center; ws1.cell(row=7, column=c).border = thin_border
             
-            # 人工大盘指标行
+            # 大盘人工指标
             headers_r8 = ["进入人工电话量", "人工接通量", "人工接通率\n（人工接通量/进入人工电话量)"]
             for idx, text in enumerate(headers_r8):
                 cell = ws1.cell(row=8, column=idx+2, value=text)
@@ -189,18 +208,17 @@ if detail_file is not None and extension_file is not None:
                 for c in range(2, 5): ws1.cell(row=r, column=c).border = thin_border
                 ws1.merge_cells(f'B{r}:C{r}')
 
-            # 📌 右侧判定池：完美映射明细表的增量列（AM列和AN列）
+            # 右侧计数区域 (完全锁定动态计算出来的物理列)
             ws1.cell(row=3, column=9, value="最终成功接通").font = font_header; ws1.cell(row=3, column=9).border = thin_border
-            # 详单AM列存放最终接通状态（是/否）
-            ws1.cell(row=3, column=10, value="=COUNTIF(云总机通话详单!$AM:$AM, \"是\")").font = font_bold_num; ws1.cell(row=3, column=10).border = thin_border; ws1.cell(row=3, column=10).alignment = align_center
+            ws1.cell(row=3, column=10, value=f'=COUNTIF(云总机通话详单!${success_col_letter}:${success_col_letter}, "是")').font = font_bold_num; ws1.cell(row=3, column=10).border = thin_border; ws1.cell(row=3, column=10).alignment = align_center
             
             flows = [
-                ("AI接通", "进入AI后，AI直接完成，未转接人工", "=COUNTIF(云总机通话详单!$AN:$AN, \"进入AI后，AI直接完成，未转接人工\")"),
-                ("人工未接通", "AI接通，转接人工，人工未接通", "=COUNTIF(云总机通话详单!$AN:$AN, \"AI接通，转接人工，人工未接通\")"),
-                ("人工未接通", "直接进入人工且最终未接通", "=COUNTIF(云总机通话详单!$AN:$AN, \"直接进入人工且最终未接通\")"),
-                ("人工接通", "进入AI后，再转接人工，且人工接通", "=COUNTIF(云总机通话详单!$AN:$AN, \"进入AI后，再转接人工，且人工接通\")"),
-                ("人工接通", "直接进入人工，且人工接通", "=COUNTIF(云总机通话详单!$AN:$AN, \"直接进入人工，且人工接通\")"),
-                ("异常", "异常", "=COUNTIF(云总机通话详单!$AN:$AN, \"异常\")"),
+                ("AI接通", "进入AI后，AI直接完成，未转接人工", f'=COUNTIF(云总机通话详单!${type_col_letter}:${type_col_letter}, "进入AI后，AI直接完成，未转接人工")'),
+                ("人工未接通", "AI接通，转接人工，人工未接通", f'=COUNTIF(云总机通话详单!${type_col_letter}:${type_col_letter}, "AI接通，转接人工，人工未接通")'),
+                ("人工未接通", "直接进入人工且最终未接通", f'=COUNTIF(云总机通话详单!${type_col_letter}:${type_col_letter}, "直接进入人工且最终未接通")'),
+                ("人工接通", "进入AI后，再转接人工，且人工接通", f'=COUNTIF(云总机通话详单!${type_col_letter}:${type_col_letter}, "进入AI后，再转接人工，且人工接通")'),
+                ("人工接通", "直接进入人工，且人工接通", f'=COUNTIF(云总机通话详单!${type_col_letter}:${type_col_letter}, "直接进入人工，且人工接通")'),
+                ("异常", "异常", f'=COUNTIF(云总机通话详单!${type_col_letter}:${type_col_letter}, "异常")'),
                 ("总来电量", "总来电量", "=SUM(J4:J9)")
             ]
             
@@ -210,7 +228,6 @@ if detail_file is not None and extension_file is not None:
                 ws1.cell(row=r, column=9, value=name).font = font_body; ws1.cell(row=r, column=9).border = thin_border; ws1.cell(row=r, column=9).alignment = align_left
                 ws1.cell(row=r, column=10, value=formula).font = font_bold_num; ws1.cell(row=r, column=10).border = thin_border; ws1.cell(row=r, column=10).alignment = align_center
 
-            ws1.column_dimensions['A'].width = 3.5
             ws1.column_dimensions['B'].width = 24
             ws1.column_dimensions['C'].width = 24
             ws1.column_dimensions['D'].width = 18
@@ -219,15 +236,12 @@ if detail_file is not None and extension_file is not None:
             ws1.column_dimensions['H'].width = 15
             ws1.column_dimensions['I'].width = 40
             ws1.column_dimensions['J'].width = 14
-            for r in [4, 6, 7, 8, 9, 12, 13, 14]: ws1.row_dimensions[r].height = 34
 
             # --- SHEET 2: 云总机通话详单 ---
             ws2 = wb.create_sheet(title="云总机通话详单")
             ws2.views.sheetView[0].showGridLines = True
             
-            orig_headers = [c for c in list(df_detail.columns) if c != '主叫号码_clean']
             extended_headers = orig_headers + ["房间是否接入AI", "最终成功接通", "接通方式", "呼叫所在日期", "呼叫所在小时"]
-            
             for col_idx, h_text in enumerate(extended_headers, 1):
                 cell = ws2.cell(row=1, column=col_idx, value=h_text)
                 cell.font = font_header; cell.fill = fill_gray; cell.border = thin_border
@@ -249,7 +263,6 @@ if detail_file is not None and extension_file is not None:
             ws3 = wb.create_sheet(title="分机号")
             ws3.views.sheetView[0].showGridLines = True
             ext_headers = [c for c in list(df_ext.columns) if c != '分机号_clean']
-            
             for col_idx, h_text in enumerate(ext_headers, 1):
                 cell = ws3.cell(row=1, column=col_idx, value=h_text)
                 cell.font = font_header; cell.fill = fill_gray; cell.border = thin_border
@@ -269,13 +282,13 @@ if detail_file is not None and extension_file is not None:
         
         st.markdown("---")
         st.download_button(
-            label="📥 导出终极校准版：内置原生逻辑对齐运营报告",
+            label="📥 导出终极校准修复版报告",
             data=excel_data,
-            file_name="酒店AI运营报告【重构校准版】.xlsx",
+            file_name="酒店AI运营报告【物理列动态校准版】.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
         
     except Exception as e:
         st.error(f"处理数据时发生异常: {e}")
 else:
-    st.info("💡 请在上方上传对应表单以激活数据链条重构。")
+    st.info("💡 请在上方上传对应表单以激活无死角数据对齐。")
