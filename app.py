@@ -8,8 +8,8 @@ from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 
 st.set_page_config(page_title="酒店AI运营报告自动化工具", layout="wide")
 
-st.title("🏨 酒店AI运营报告数据自动化统计系统 (指标留白精修版)")
-st.markdown("已完成微调：将【整体电话接通率（切换AI前）】的数值清空留白，仅保留文字表头，确保数据源可追溯性。")
+st.title("🏨 酒店AI运营报告数据自动化统计系统 (公式严谨平账版)")
+st.markdown("已完成最终微调：1:1 还原模版 `最终成功接通` 的嵌套 IF 逻辑，完美剔除“转人工未接通”的计数差异，实现完全平账。")
 
 col1, col2 = st.columns(2)
 with col1:
@@ -72,14 +72,15 @@ if detail_file is not None and extension_file is not None:
         ext_col = '分机号' if '分机号' in df_ext.columns else df_ext.columns[1]
         desc_col = '分机描述' if '分机描述' in df_ext.columns else df_ext.columns[0]
         
-        df_ext['分机号_clean'] = df_ext[ext_col].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
+        df_ext['分机号_clean'] = ext_col_clean = df_ext[ext_col].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
         ext_dict = dict(zip(df_ext['分机号_clean'], df_ext[desc_col]))
         
         df_detail['房间是否接入AI'] = df_detail['主叫号码_clean'].map(ext_dict)
         
+        # 仅保留接入AI且呼入的有效客房数据
         df_valid = df_detail[df_detail['房间是否接入AI'].notna() & (df_detail['通话类型'] == '呼入')].copy()
         
-        # 1:1 复刻 Excel 嵌套 IF 逻辑函数
+        # 1:1 复刻 Excel 嵌套 IF 接通流向函数
         def excel_nested_if_logic(row):
             al = str(row['房间是否接入AI']).strip()
             m = str(row['通话状态']).strip()
@@ -101,18 +102,37 @@ if detail_file is not None and extension_file is not None:
             else:
                 return "异常"
 
-        # 绑定新列计算
-        df_valid['最终成功接通'] = df_valid.apply(lambda r: "是" if str(r['通话状态']).strip() == "接通" and str(r['通话时长']).strip() != "00:00:00" else "否", axis=1)
+        # 📌 针对反馈重构：1:1 复刻原模版 IF(OR(AND(...))) 逻辑，完美平账
+        def excel_success_call_logic(row):
+            al = str(row['房间是否接入AI']).strip()
+            m = str(row['通话状态']).strip()
+            n = str(row['AI通话状态']).strip()
+            o = str(row['人工通话状态']).strip()
+            
+            if al != "客房":
+                return "--"
+            
+            # 模版核心 OR 条件判定
+            cond1 = (m == "接通" and n == "接通" and o == "接通")
+            cond2 = (m == "接通" and n == "接通" and o == "--")
+            cond3 = (m == "接通" and n == "--" and o == "接通")
+            
+            if cond1 or cond2 or cond3:
+                return "是"
+            else:
+                return "否"
+
+        # 绑定重构后的两列核心计算
+        df_valid['最终成功接通'] = df_valid.apply(excel_success_call_logic, axis=1)
         df_valid['接通方式'] = df_valid.apply(excel_nested_if_logic, axis=1)
         df_valid['呼叫所在日期'] = df_valid['呼叫时间'].astype(str).apply(lambda x: x.split()[0] if len(x.split())>0 else '')
         df_valid['呼叫所在小时'] = df_valid['呼叫时间'].astype(str).apply(lambda x: x.split()[1].split(':')[0] if len(x.split())>1 and ':' in x.split()[1] else '')
 
-        st.success("📊 数据链条清洗完毕，准备写入 Excel 公式！")
+        st.success("📊 数据链条匹配完毕，已修正接通校验逻辑！")
 
         def generate_formula_excel(date_range_str):
             wb = Workbook()
             ws1 = wb.active
-            ws1.title = "电话 data"
             ws1.title = "电话数据"
             ws1.views.sheetView[0].showGridLines = True
             
@@ -142,19 +162,16 @@ if detail_file is not None and extension_file is not None:
             for c in range(2, 5): ws1.cell(row=4, column=c).border = thin_border
             ws1.merge_cells('B4:C4')
             
-            # 大盘头部指标表头
+            # 大盘头部指标
             headers_r6 = ["进入AI电话量", "AI接通量", "AI接通率\n（AI接通量/进入AI电话量）", "整体电话接通率\n（切换AI后）", "整体电话接通率\n（切换AI前）"]
             for idx, text in enumerate(headers_r6):
                 cell = ws1.cell(row=6, column=idx+2, value=text)
                 cell.fill = fill_gray; cell.font = font_header; cell.alignment = align_center; cell.border = thin_border
             
-            # 大盘核心数据行
             ws1.cell(row=7, column=2, value='=COUNTIFS(云总机通话详单!$N:$N, "接通", 云总机通话详单!$AL:$AL, "客房")').font = font_bold_num
             ws1.cell(row=7, column=3, value='=COUNTIFS(云总机通话详单!$N:$N, "接通", 云总机通话详单!$AL:$AL, "客房")').font = font_bold_num
             ws1.cell(row=7, column=4, value="=C7/B7").font = font_bold_num; ws1.cell(row=7, column=4).number_format = '0.00%'
             ws1.cell(row=7, column=5, value="=J3/D4").font = font_bold_num; ws1.cell(row=7, column=5).number_format = '0.00%'
-            
-            # 📌 针对反馈修正：将第六列 (整体电话接通率 切换AI前) 的数值清空留白，不再硬编码 0.967
             ws1.cell(row=7, column=6, value="").font = font_bold_num 
             
             for c in range(2, 7): ws1.cell(row=7, column=c).alignment = align_center; ws1.cell(row=7, column=c).border = thin_border
@@ -262,29 +279,12 @@ if detail_file is not None and extension_file is not None:
             return output
 
         excel_data = generate_formula_excel(detected_date_range)
-
-        # 🛠️ 网页端【内鬼探测器】组件（排查完毕后可随时删掉）
-        st.markdown("### 🔍 诊断工具：平账内鬼探测器")
-        
-        # 看看代码判定为“是”的总行数
-        code_yes_df = df_valid[df_valid['最终成功接通'] == "是"]
-        st.write(f"代码当前清洗出『最终成功接通』为“是”的记录共：**{len(code_yes_df)}** 条")
-        
-        # 1. 帮你想看看是不是 00:00:00 的问题
-        zero_duration = code_yes_df[code_yes_df['通话时长'].astype(str).str.strip() == "00:00:00"]
-        if len(zero_duration) > 0:
-            st.warning(f"🚨 发现了 {len(zero_duration)} 条通话状态为接通、但时长为 00:00:00 的记录！")
-            st.dataframe(zero_duration[['主叫号码', '呼叫时间', '通话状态', '通话时长']])
-        
-        # 2. 提供一个快速预览，你可以拿去和模版里筛选出的 246 条做比对
-        with st.expander("点击展开：查看代码判定为『是』的所有数据清单（可用来和模版对齐）"):
-            st.dataframe(code_yes_df[['主叫号码', '呼叫时间', '通话状态', '通话时长', '接通方式']])
         
         st.markdown("---")
         st.download_button(
-            label=f"📥 导出【{detected_date_range}】完美运营报告",
+            label=f"📥 导出【{detected_date_range}】完美对齐账目报告",
             data=excel_data,
-            file_name=f"酒店AI运营报告【{detected_date_range}精修留白版】.xlsx",
+            file_name=f"酒店AI运营报告【{detected_date_range}完全对齐版】.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
         
