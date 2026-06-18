@@ -1,13 +1,15 @@
 import streamlit as st
 import pandas as pd
 import io
+import re
+from datetime import datetime
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 
 st.set_page_config(page_title="酒店AI运营报告自动化工具", layout="wide")
 
-st.title("🏨 酒店AI运营报告数据自动化统计系统 (大盘核心公式校准版)")
-st.markdown("已完全按照反馈的原始公式重构大盘：进入AI/AI接通量1:1绑定COUNTIFS，成功接通绑定COUNTIF。")
+st.title("🏨 酒店AI运营报告数据自动化统计系统 (文件名日期动态同步版)")
+st.markdown("已新增功能：自动解析【云总机通话详单】文件名中的日期区间，并像素级同步更新至 Excel 报告的 B1 单元格。")
 
 col1, col2 = st.columns(2)
 with col1:
@@ -28,8 +30,35 @@ def smart_read_detail(file):
             return excel_file.parse(sheet_name)
     return excel_file.parse(0)
 
+# 📌 新增：从文件名动态提取日期的函数
+def extract_date_range(filename):
+    if not filename:
+        return "0605-0611" # 默认兜底
+    
+    # 匹配常见的日期格式如：0605-0611, 20260605-20260611, 2026.06.05-2026.06.11 等
+    date_pattern = r'(\d{4}[.\-_]?\d{2}[.\-_]?\d{2}|\d{4}|\d{2}[.\-_]?\d{2})[~\-–—]+(\d{4}[.\-_]?\d{2}[.\-_]?\d{2}|\d{4}|\d{2}[.\-_]?\d{2})'
+    match = re.search(date_pattern, filename)
+    
+    if match:
+        # 提取到的原始日期字符串
+        start_date, end_date = match.group(1), match.group(2)
+        # 清洗掉可能多余的年年份前缀，统一保持简洁如 0605-0611 的视觉感，或者直接返回原样式
+        start_clean = start_date[-4:] if len(start_date.replace('.','').replace('-','')) >= 4 else start_date
+        end_clean = end_date[-4:] if len(end_date.replace('.','').replace('-','')) >= 4 else end_date
+        
+        # 格式化一下
+        if len(start_clean) == 4 and len(end_clean) == 4:
+            return f"{start_clean[:2]}{start_clean[2:]}-{end_clean[:2]}{end_clean[2:]}"
+        return f"{match.group(1)}-{match.group(2)}"
+    
+    return "0605-0611" # 没匹配到时的默认值
+
 if detail_file is not None and extension_file is not None:
     try:
+        # 提取文件名中的日期区间
+        detected_date_range = extract_date_range(detail_file.name)
+        st.info(f"📅 成功从文件名中捕获到观测日期周期：`{detected_date_range}`")
+
         df_detail = smart_read_detail(detail_file)
         try:
             df_ext = pd.read_excel(extension_file)
@@ -88,7 +117,7 @@ if detail_file is not None and extension_file is not None:
 
         st.success("📊 数据链条清洗完毕，准备写入 Excel 公式！")
 
-        def generate_formula_excel():
+        def generate_formula_excel(date_range_str):
             wb = Workbook()
             ws1 = wb.active
             ws1.title = "电话数据"
@@ -107,7 +136,9 @@ if detail_file is not None and extension_file is not None:
                 top=Side(style='thin', color='D9D9D9'), bottom=Side(style='thin', color='D9D9D9')
             )
             
-            ws1.cell(row=1, column=2, value="数据周期：0605-0611").font = font_body
+            # 📌 动态写入抓取到的实际观测日期
+            ws1.cell(row=1, column=2, value=f"数据周期：{date_range_str}").font = font_body
+            
             for c in range(2, 7): ws1.cell(row=3, column=c).fill = fill_part
             ws1.cell(row=3, column=2, value="PART1：酒店电话数据").font = font_title
             ws1.merge_cells('B3:F3')
@@ -125,7 +156,7 @@ if detail_file is not None and extension_file is not None:
                 cell = ws1.cell(row=6, column=idx+2, value=text)
                 cell.fill = fill_gray; cell.font = font_header; cell.alignment = align_center; cell.border = thin_border
             
-            # 📌 终极校准：完全按照反馈的要求，直接复刻 COUNTIFS 公式拉取详单数据
+            # 终极校准形式
             ws1.cell(row=7, column=2, value='=COUNTIFS(云总机通话详单!$N:$N, "接通", 云总机通话详单!$AL:$AL, "客房")').font = font_bold_num
             ws1.cell(row=7, column=3, value='=COUNTIFS(云总机通话详单!$N:$N, "接通", 云总机通话详单!$AL:$AL, "客房")').font = font_bold_num
             ws1.cell(row=7, column=4, value="=C7/B7").font = font_bold_num; ws1.cell(row=7, column=4).number_format = '0.00%'
@@ -133,7 +164,7 @@ if detail_file is not None and extension_file is not None:
             ws1.cell(row=7, column=6, value=0.967).font = font_bold_num; ws1.cell(row=7, column=6).number_format = '0.00%'
             for c in range(2, 7): ws1.cell(row=7, column=c).alignment = align_center; ws1.cell(row=7, column=c).border = thin_border
             
-            # 人工指标区 (依然保留公式兼容)
+            # 人工指标区
             headers_r8 = ["进入人工电话量", "人工接通量", "人工接通率\n（人工接通量/进入人工电话量)"]
             for idx, text in enumerate(headers_r8):
                 cell = ws1.cell(row=8, column=idx+2, value=text)
@@ -162,7 +193,7 @@ if detail_file is not None and extension_file is not None:
                 for c in range(2, 5): ws1.cell(row=r, column=c).border = thin_border
                 ws1.merge_cells(f'B{r}:C{r}')
 
-            # 📌 右侧流程池核心映射：最终成功接通完全按照要求绑定为对 AM 列的唯一 COUNTIF 计数
+            # 右侧流程池核心映射
             ws1.cell(row=3, column=9, value="最终成功接通").font = font_header; ws1.cell(row=3, column=9).border = thin_border
             ws1.cell(row=3, column=10, value='=COUNTIF(云总机通话详单!$AM:$AM, "是")').font = font_bold_num; ws1.cell(row=3, column=10).border = thin_border; ws1.cell(row=3, column=10).alignment = align_center
             
@@ -208,11 +239,11 @@ if detail_file is not None and extension_file is not None:
                     ws2.cell(row=row_cursor, column=col_idx, value=row[h_text])
                 
                 base_len = len(orig_headers)
-                ws2.cell(row=row_cursor, column=base_len+1, value=row["房间是否接入AI"]) # AL
-                ws2.cell(row=row_cursor, column=base_len+2, value=row["最终成功接通"])     # AM
-                ws2.cell(row=row_cursor, column=base_len+3, value=row["接通方式"])         # AN
-                ws2.cell(row=row_cursor, column=base_len+4, value=row["呼叫所在日期"])     # AO
-                ws2.cell(row=row_cursor, column=base_len+5, value=row["呼叫所在小时"])     # AP
+                ws2.cell(row=row_cursor, column=base_len+1, value=row["房间是否接入AI"]) 
+                ws2.cell(row=row_cursor, column=base_len+2, value=row["最终成功接通"])     
+                ws2.cell(row=row_cursor, column=base_len+3, value=row["接通方式"])         
+                ws2.cell(row=row_cursor, column=base_len+4, value=row["呼叫所在日期"])     
+                ws2.cell(row=row_cursor, column=base_len+5, value=row["呼叫所在小时"])     
                 row_cursor += 1
 
             # --- SHEET 3: 分机号 ---
@@ -234,13 +265,13 @@ if detail_file is not None and extension_file is not None:
             output.seek(0)
             return output
 
-        excel_data = generate_formula_excel()
+        excel_data = generate_formula_excel(detected_date_range)
         
         st.markdown("---")
         st.download_button(
-            label="📥 导出最终校准版运营报告",
+            label=f"📥 导出【{detected_date_range}】终极版运营报告",
             data=excel_data,
-            file_name="酒店AI运营报告【大盘公式终极校准版】.xlsx",
+            file_name=f"酒店AI运营报告【{detected_date_range}动态平账版】.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
         
