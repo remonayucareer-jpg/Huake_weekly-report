@@ -86,26 +86,18 @@ if uploaded_file_call:
 st.markdown("---")
 
 # ==============================================================================
-# 2. PART 3：工单大盘核算数据源
+# 2. PART 3：工单大盘自动核算（已彻底删掉酒店名称选择框）
 # ==============================================================================
 st.subheader("⚙️ PART 3：工单大盘自动核算")
 
-col_ctrl1, col_ctrl2 = st.columns(2)
+# 只有一个整行上传组件，清爽直接
+uploaded_file_workorder = st.file_uploader(
+    "3. 上传【华客系统导出的工单原始表】", 
+    type=["xlsx", "xls", "csv"],
+    key="workorder_uploader"
+)
 
-with col_ctrl1:
-    hotel_name = st.selectbox(
-        "酒店名称",
-        options=["请选择酒店", "长沙高铁南站延年檀香山酒店", "其他备选酒店1"],
-        index=0
-    )
-
-with col_ctrl2:
-    uploaded_file_workorder = st.file_uploader(
-        "3. 上传【华客系统导出的工单原始表】", 
-        type=["xlsx", "xls", "csv"],
-        key="workorder_uploader"
-    )
-
+st.markdown(" ")
 col_m1, col_m2, col_m3 = st.columns(3)
 
 run_calculation = st.button("🔍 确认基础数据，开始跨板块核算大盘", type="primary")
@@ -113,7 +105,7 @@ run_calculation = st.button("🔍 确认基础数据，开始跨板块核算大�
 # ==============================================================================
 # 3. 后台核心真实账目平账核算与高级公式导出引擎
 # ==============================================================================
-if run_calculation and hotel_name != "请选择酒店" and uploaded_file_call is not None and uploaded_file_ext is not None and uploaded_file_workorder is not None:
+if run_calculation and uploaded_file_call is not None and uploaded_file_ext is not None and uploaded_file_workorder is not None:
     try:
         # ---- 1. 处理通话数据与分机表 ----
         df_detail = smart_read_detail(uploaded_file_call)
@@ -170,9 +162,14 @@ if run_calculation and hotel_name != "请选择酒店" and uploaded_file_call is
         df_detail['呼叫所在日期'] = df_detail['呼叫时间'].astype(str).apply(lambda x: x.split()[0] if len(x.split())>0 else '')
         df_detail['呼叫所在小时'] = df_detail['呼叫时间'].astype(str).apply(lambda x: x.split()[1].split(':')[0] if len(x.split())>1 and ':' in x.split()[1] else '')
 
-        df_valid = df_detail[(df_detail['酒店名称'] == hotel_name) & (df_detail['房间是否接入AI'].notna()) & (df_detail['通话类型'] == '呼入')].copy()
+        # 获取通话详单中的酒店名称以便保持系统连贯性
+        hotel_title_from_file = "长沙高铁南站延年檀香山酒店"
+        if '酒店名称' in df_detail.columns and not df_detail['酒店名称'].empty:
+            hotel_title_from_file = df_detail['酒店名称'].iloc[0]
 
-        # ---- 2. 🌟 解析 PART 3 工单表（加入过滤空行逻辑） ----
+        df_valid = df_detail[(df_detail['房间是否接入AI'].notna()) & (df_detail['通话类型'] == '呼入')].copy()
+
+        # ---- 2. 解析 PART 3 工单表（直接全表核算，跳过空白行） ----
         if uploaded_file_workorder.name.endswith('.csv'):
             df_wo = pd.read_csv(uploaded_file_workorder)
         else:
@@ -183,22 +180,16 @@ if run_calculation and hotel_name != "请选择酒店" and uploaded_file_call is
         
         df_wo.columns = df_wo.columns.astype(str).str.strip().str.replace('\n', '')
         
-        # 🚨【核心修复】：丢弃完全空白的行，且确保工单ID不为空
+        # 【核心清洗】：丢弃完全空白的行，且确保关键工单标识不为空
         df_wo = df_wo.dropna(how='all')
         if '工单ID' in df_wo.columns:
-            df_wo = df_wo[df_wo['工单ID'].notna() & (df_wo['工单ID'].astype(str).str.strip() != '')]
-        elif '工单主题' in df_wo.columns: # 兼容处理
-            df_wo = df_wo[df_wo['工单主题'].notna() & (df_wo['工单主题'].astype(str).str.strip() != '')]
-
-        # 过滤当前选择的酒店工单
-        if '酒店' in df_wo.columns:
-            df_wo_filtered = df_wo[df_wo['酒店'].astype(str).str.contains(hotel_name[:4])] 
-            if df_wo_filtered.empty:
-                df_wo_filtered = df_wo
+            df_wo_filtered = df_wo[df_wo['工单ID'].notna() & (df_wo['工单ID'].astype(str).str.strip() != '')]
+        elif '工单主题' in df_wo.columns:
+            df_wo_filtered = df_wo[df_wo['工单主题'].notna() & (df_wo['工单主题'].astype(str).str.strip() != '')]
         else:
             df_wo_filtered = df_wo
 
-        # 精准求和（已过滤全部脏空行）
+        # 精准求和（不再按前端选择过滤酒店名称，直接信任表格数据）
         real_total_tickets = len(df_wo_filtered)
         
         status_col = '工单状态' if '工单状态' in df_wo_filtered.columns else ('是否超时' if '是否超时' in df_wo_filtered.columns else df_wo_filtered.columns[4])
@@ -206,15 +197,15 @@ if run_calculation and hotel_name != "请选择酒店" and uploaded_file_call is
         
         real_timeout_rate = (real_timeout_tickets / real_total_tickets) if real_total_tickets > 0 else 0
 
-        # ✨ 刷新网页前端看板组件
+        # ✨ 动态更新网页前端看板组件
         with col_m1:
             st.metric(label="AI 服务工单总数", value=f"{real_total_tickets} 个")
         with col_m2:
-            st.metric(label="超时处理工单数 (含'已超时')", value=f"{real_timeout_tickets} 个")
+            st.metric(label="超时处理工单数 (已自动滤空)", value=f"{real_timeout_tickets} 个")
         with col_m3:
             st.metric(label="服务工单超时率", value=f"{real_timeout_rate * 100:.2f} %")
 
-        st.success("🟩 数据平账模型同步成功，脏空行已自动跳过！")
+        st.success("🟩 大盘账目全自动计算完成，空白脏行已跳过！")
 
         # ---- 【高级公式格式化模版导出】 ----
         wb = Workbook()
@@ -284,7 +275,7 @@ if run_calculation and hotel_name != "请选择酒店" and uploaded_file_call is
             for c in range(2, 5): ws1.cell(row=r, column=c).border = thin_border
             ws1.merge_cells(f'B{r}:C{r}')
 
-        # PART 3 
+        # PART 3 (将真实去除空行后的数据打入 Excel)
         for c in range(2, 7): ws1.cell(row=17, column=c).fill = fill_part
         ws1.cell(row=17, column=2, value="PART3：工单大盘超时统计").font = font_title
         ws1.merge_cells('B17:F17')
@@ -299,7 +290,7 @@ if run_calculation and hotel_name != "请选择酒店" and uploaded_file_call is
         ws1.cell(row=19, column=4, value="=C19/B19").font = font_bold_num; ws1.cell(row=19, column=4).number_format = '0.00%'
         for c in range(2, 5): ws1.cell(row=19, column=c).alignment = align_center; ws1.cell(row=19, column=c).border = thin_border
 
-        # 右侧平账参照表公式
+        # 右侧平账参照表
         ws1.cell(row=3, column=9, value="最终成功接通").font = font_header; ws1.cell(row=3, column=9).border = thin_border
         ws1.cell(row=3, column=10, value='=COUNTIF(云总机通话详单!$AM:$AM, "是")').font = font_bold_num; ws1.cell(row=3, column=10).border = thin_border; ws1.cell(row=3, column=10).alignment = align_center
         
@@ -339,7 +330,7 @@ if run_calculation and hotel_name != "请选择酒店" and uploaded_file_call is
                 ws2.cell(row=row_cursor, column=col_idx, value=row[h_text])
             base_len = len(orig_headers)
             ws2.cell(row=row_cursor, column=base_len+1, value=row["房间是否接入AI"]) 
-            ws2.cell(row=row_cursor, column=base_len+2, value=row["最終成功接通"])     
+            ws2.cell(row=row_cursor, column=base_len+2, value=row["最终成功接通"])     
             ws2.cell(row=row_cursor, column=base_len+3, value=row["接通方式"])         
             ws2.cell(row=row_cursor, column=base_len+4, value=row["呼叫所在日期"])     
             ws2.cell(row=row_cursor, column=base_len+5, value=row["呼叫所在小时"])     
@@ -373,11 +364,11 @@ if run_calculation and hotel_name != "请选择酒店" and uploaded_file_call is
     except Exception as e:
         st.error(f"🚨 跨板块账目核算失败，详情: {e}")
 else:
-    if hotel_name == "请选择酒店":
+    if uploaded_file_call is None or uploaded_file_ext is None or uploaded_file_workorder is None:
+        # 看板置空状态
         with col_m1: st.metric(label="AI 服务工单总数", value="-")
         with col_m2: st.metric(label="超时处理工单数", value="-")
         with col_m3: st.metric(label="服务工单超时率", value="-")
-    if uploaded_file_call is None or uploaded_file_ext is None or uploaded_file_workorder is None:
         st.info("ℹ️ 请在上方完整上传【通话详单】、【分机号表】和【工单表】三份核心数据源以激活平账漏斗。")
     else:
         st.info("ℹ️ 请点击上方蓝色按钮，确认开始自动化全大盘对账。")
