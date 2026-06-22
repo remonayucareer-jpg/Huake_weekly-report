@@ -86,7 +86,7 @@ if uploaded_file_call:
 st.markdown("---")
 
 # ==============================================================================
-# 2. PART 3：工单大盘自动核算（去除了酒店选择框，直接传表）
+# 2. PART 3：工单大盘自动核算
 # ==============================================================================
 st.subheader("⚙️ PART 3：工单大盘自动核算")
 
@@ -131,7 +131,7 @@ if run_calculation and uploaded_file_call is not None and uploaded_file_ext is n
         ext_dict = dict(zip(df_ext['分机号_clean'], df_ext[desc_col]))
         df_detail['房间是否接入AI'] = df_detail['主叫号码_clean'].map(ext_dict)
         
-        # 衍生辅助列公式
+        # 衍生辅助列逻辑
         def excel_nested_if_logic(row):
             al = str(row['房间是否接入AI']).strip()
             m = str(row['通话状态']).strip()
@@ -161,9 +161,16 @@ if run_calculation and uploaded_file_call is not None and uploaded_file_ext is n
         df_detail['呼叫所在日期'] = df_detail['呼叫时间'].astype(str).apply(lambda x: x.split()[0] if len(x.split())>0 else '')
         df_detail['呼叫所在小时'] = df_detail['呼叫时间'].astype(str).apply(lambda x: x.split()[1].split(':')[0] if len(x.split())>1 and ':' in x.split()[1] else '')
 
-        df_valid = df_detail[(df_detail['房间是否接入AI'].notna()) & (df_detail['通话类型'] == '呼入')].copy()
+        # 只筛选呼入且为客房的数据进行统计
+        df_valid = df_detail[(df_detail['房间是否接入AI'] == '客房') & (df_detail['通话类型'] == '呼入')].copy()
 
-        # ---- 2. 🌟 解析 PART 3 工单表（彻底卡死“是否超时 == 是”逻辑） ----
+        # 在Python后台精确算好各指标的基础量（防止Excel列错位）
+        calc_total_calls = len(df_valid)
+        calc_ai_received = len(df_valid[df_valid['AI通话状态'] == '接通'])
+        calc_human_needed = len(df_valid[df_valid['接通方式'].isin(["进入AI后，再转接人工，且人工接通", "AI接通，转接人工，人工未接通", "直接进入人工且最终未接通"])])
+        calc_human_received = len(df_valid[df_valid['人工通话状态'] == '接通'])
+
+        # ---- 2. 解析 PART 3 工单表 ----
         if uploaded_file_workorder.name.endswith('.csv'):
             df_wo = pd.read_csv(uploaded_file_workorder)
         else:
@@ -174,7 +181,7 @@ if run_calculation and uploaded_file_call is not None and uploaded_file_ext is n
         
         df_wo.columns = df_wo.columns.astype(str).str.strip().str.replace('\n', '')
         
-        # 先强力剔除完全空白的垃圾行
+        # 剔除全空行
         df_wo = df_wo.dropna(how='all')
         if '工单ID' in df_wo.columns:
             df_wo_filtered = df_wo[df_wo['工单ID'].notna() & (df_wo['工单ID'].astype(str).str.strip() != '')].copy()
@@ -183,17 +190,12 @@ if run_calculation and uploaded_file_call is not None and uploaded_file_ext is n
         else:
             df_wo_filtered = df_wo.copy()
 
-        # 1) AI服务工单总数：剔除空行后的总行数
         real_total_tickets = len(df_wo_filtered)
-        
-        # 2) 🚨 核心改动：寻找“是否超时”列，精准点算纯文本为“是”的行数
         timeout_col = '是否超时' if '是否超时' in df_wo_filtered.columns else ('工单状态' if '工单状态' in df_wo_filtered.columns else df_wo_filtered.columns[5])
         real_timeout_tickets = (df_wo_filtered[timeout_col].astype(str).str.strip() == '是').sum()
-        
-        # 3) 计算真实超时率
         real_timeout_rate = (real_timeout_tickets / real_total_tickets) if real_total_tickets > 0 else 0
 
-        # ✨ 渲染前端大盘指标
+        # ✨ 渲染前端大盘
         with col_m1:
             st.metric(label="AI 服务工单总数", value=f"{real_total_tickets} 个")
         with col_m2:
@@ -201,9 +203,9 @@ if run_calculation and uploaded_file_call is not None and uploaded_file_ext is n
         with col_m3:
             st.metric(label="服务工单超时率", value=f"{real_timeout_rate * 100:.2f} %")
 
-        st.success("🟩 账目对平！已跳过空白行，并严格按照【是否超时 == 是】统计完成！")
+        st.success("🟩 账目核算成功！")
 
-        # ---- 【高级公式格式化模版导出】 ----
+        # ---- 3. 【高级格式化模版导出】 ----
         wb = Workbook()
         ws1 = wb.active
         ws1.title = "电话数据"
@@ -238,8 +240,9 @@ if run_calculation and uploaded_file_call is not None and uploaded_file_ext is n
             cell = ws1.cell(row=6, column=idx+2, value=text)
             cell.fill = fill_gray; cell.font = font_header; cell.alignment = align_center; cell.border = thin_border
         
-        ws1.cell(row=7, column=2, value='=COUNTIFS(云总机通话详单!$N:$N, "接通", 云总机通话详单!$AL:$AL, "客房")').font = font_bold_num
-        ws1.cell(row=7, column=3, value='=COUNTIFS(云总机通话详单!$N:$N, "接通", 云总机通话详单!$AL:$AL, "客房")').font = font_bold_num
+        # 🚨【降维打击】：直接回填精准算好的真实数字，避开COUNTIFS的跨Sheet列错位Bug
+        ws1.cell(row=7, column=2, value=calc_total_calls).font = font_bold_num
+        ws1.cell(row=7, column=3, value=calc_ai_received).font = font_bold_num
         ws1.cell(row=7, column=4, value="=C7/B7").font = font_bold_num; ws1.cell(row=7, column=4).number_format = '0.00%'
         ws1.cell(row=7, column=5, value="=J3/D4").font = font_bold_num; ws1.cell(row=7, column=5).number_format = '0.00%'
         for c in range(2, 7): ws1.cell(row=7, column=c).alignment = align_center; ws1.cell(row=7, column=c).border = thin_border
@@ -271,7 +274,7 @@ if run_calculation and uploaded_file_call is not None and uploaded_file_ext is n
             for c in range(2, 5): ws1.cell(row=r, column=c).border = thin_border
             ws1.merge_cells(f'B{r}:C{r}')
 
-        # PART 3 (将真实过滤空行、卡死“是否超时==是”的数字导入)
+        # PART 3 
         for c in range(2, 7): ws1.cell(row=17, column=c).fill = fill_part
         ws1.cell(row=17, column=2, value="PART3：工单大盘超时统计").font = font_title
         ws1.merge_cells('B17:F17')
@@ -286,25 +289,25 @@ if run_calculation and uploaded_file_call is not None and uploaded_file_ext is n
         ws1.cell(row=19, column=4, value="=C19/B19").font = font_bold_num; ws1.cell(row=19, column=4).number_format = '0.00%'
         for c in range(2, 5): ws1.cell(row=19, column=c).alignment = align_center; ws1.cell(row=19, column=c).border = thin_border
 
-        # 右侧平账参照表公式
+        # 右侧漏斗数据
         ws1.cell(row=3, column=9, value="最终成功接通").font = font_header; ws1.cell(row=3, column=9).border = thin_border
-        ws1.cell(row=3, column=10, value='=COUNTIF(云总机通话详单!$AM:$AM, "是")').font = font_bold_num; ws1.cell(row=3, column=10).border = thin_border; ws1.cell(row=3, column=10).alignment = align_center
+        ws1.cell(row=3, column=10, value=len(df_valid[df_valid['最终成功接通'] == '是'])).font = font_bold_num; ws1.cell(row=3, column=10).border = thin_border; ws1.cell(row=3, column=10).alignment = align_center
         
         flows = [
-            ("AI接通", "进入AI后，AI直接完成，未转接人工", '=COUNTIF(云总机通话详单!$AN:$AN, "进入AI后，AI直接完成，未转接人工")'),
-            ("人工未接通", "AI接通，转接人工，人工未接通", '=COUNTIF(云总机通话详单!$AN:$AN, "AI接通，转接人工，人工未接通")'),
-            ("人工未接通", "直接进入人工且最终未接通", '=COUNTIF(云总机通话详单!$AN:$AN, "直接进入人工且最终未接通")'),
-            ("人工接通", "进入AI后，再转接人工，且人工接通", '=COUNTIF(云总机通话详单!$AN:$AN, "进入AI后，再转接人工，且人工接通")'),
-            ("人工接通", "直接进入人工，且人工接通", '=COUNTIF(云总机通话详单!$AN:$AN, "直接进入人工，且人工接通")'),
-            ("客人主动挂断", "客人主动挂断", '=COUNTIF(云总机通话详单!$AN:$AN, "客人主动挂断")'),
-            ("异常", "异常", '=COUNTIF(云总机通话详单!$AN:$AN, "异常")'),
+            ("AI接通", "进入AI后，AI直接完成，未转接人工", len(df_valid[df_valid['接通方式'] == "进入AI后，AI直接完成，未转接人工"])),
+            ("人工未接通", "AI接通，转接人工，人工未接通", len(df_valid[df_valid['接通方式'] == "AI接通，转接人工，人工未接通"])),
+            ("人工未接通", "直接进入人工且最终未接通", len(df_valid[df_valid['接通方式'] == "直接进入人工且最终未接通"])),
+            ("人工接通", "进入AI后，再转接人工，且人工接通", len(df_valid[df_valid['接通方式'] == "进入AI后，再转接人工，且人工接通"])),
+            ("人工接通", "直接进入人工且人工接通", len(df_valid[df_valid['接通方式'] == "直接进入人工且人工接通"])),
+            ("客人主动挂断", "客人主动挂断", len(df_valid[df_valid['接通方式'] == "客人主动挂断"])),
+            ("异常", "异常", len(df_valid[df_valid['接通方式'] == "异常"])),
             ("总来电量", "总来电量", "=SUM(J4:J10)")
         ]
-        for idx, (grp, name, formula) in enumerate(flows):
+        for idx, (grp, name, val) in enumerate(flows):
             r = 4 + idx
             ws1.cell(row=r, column=8, value=grp).font = font_body; ws1.cell(row=r, column=8).border = thin_border; ws1.cell(row=r, column=8).alignment = align_center
             ws1.cell(row=r, column=9, value=name).font = font_body; ws1.cell(row=r, column=9).border = thin_border; ws1.cell(row=r, column=9).alignment = align_left
-            ws1.cell(row=r, column=10, value=formula).font = font_bold_num; ws1.cell(row=r, column=10).border = thin_border; ws1.cell(row=r, column=10).alignment = align_center
+            ws1.cell(row=r, column=10, value=val).font = font_bold_num; ws1.cell(row=r, column=10).border = thin_border; ws1.cell(row=r, column=10).alignment = align_center
 
         ws1.column_dimensions['B'].width = 24; ws1.column_dimensions['C'].width = 24; ws1.column_dimensions['D'].width = 18
         ws1.column_dimensions['E'].width = 24; ws1.column_dimensions['F'].width = 24; ws1.column_dimensions['H'].width = 15
