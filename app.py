@@ -38,20 +38,20 @@ col_upload1, col_upload2 = st.columns(2)
 with col_upload1:
     uploaded_file_call = st.file_uploader(
         "1. 上传【云总机通话详单】", 
-        type=["xlsx", "xls"],
+        type=["xlsx", "xls", "csv"],
         key="call_uploader"
     )
 
 with col_upload2:
     uploaded_file_ext = st.file_uploader(
         "2. 上传【分机号表】", 
-        type=["xlsx", "xls"],
+        type=["xlsx", "xls", "csv"],
         key="ext_uploader"
     )
 
 def extract_date_range(filename):
     if not filename:
-        return "0612-0618"
+        return "数据周期"
     date_pattern = r'(\d{4}[.\-_]?\d{2}[.\-_]?\d{2}|\d{4}|\d{2}[.\-_]?\d{2})[~\-–—]+(\d{4}[.\-_]?\d{2}[.\-_]?\d{2}|\d{4}|\d{2}[.\-_]?\d{2})'
     match = re.search(date_pattern, filename)
     if match:
@@ -61,9 +61,11 @@ def extract_date_range(filename):
         if len(start_clean) == 4 and len(end_clean) == 4:
             return f"{start_clean[:2]}{start_clean[2:]}-{end_clean[:2]}{end_clean[2:]}"
         return f"{match.group(1)}-{match.group(2)}"
-    return "0612-0618"
+    return "数据周期"
 
 def smart_read_detail(file):
+    if file.name.endswith('.csv'):
+        return pd.read_csv(file)
     excel_file = pd.ExcelFile(file)
     for sheet_name in excel_file.sheet_names:
         df_tmp = excel_file.parse(sheet_name, nrows=10)
@@ -76,17 +78,15 @@ def smart_read_detail(file):
             return excel_file.parse(sheet_name)
     return excel_file.parse(0)
 
-detected_date_str = "0612-0618"
+detected_date_str = "运营大盘"
 if uploaded_file_call:
     detected_date_str = extract_date_range(uploaded_file_call.name)
     st.info(f"📅 成功从文件名中捕获观测日期周期：`{detected_date_str}`")
-else:
-    st.info("💡 请上传上方基础表格以激活数据平账模型")
 
 st.markdown("---")
 
 # ==============================================================================
-# 2. PART 3：工单联动核算区 (内置真实网页抓取日历数据)
+# 2. PART 3：工单大盘核算数据源
 # ==============================================================================
 st.subheader("⚙️ PART 3：工单大盘自动核算")
 
@@ -100,26 +100,28 @@ with col_ctrl1:
     )
 
 with col_ctrl2:
-    date_range = st.date_input(
-        "时间周期",
-        value=(datetime.date(2026, 6, 12), datetime.date(2026, 6, 18)),
-        min_value=datetime.date(2025, 1, 1),
-        max_value=datetime.date(2027, 1, 1)
+    uploaded_file_workorder = st.file_uploader(
+        "3. 上传【华客系统导出的工单原始表】", 
+        type=["xlsx", "xls", "csv"],
+        key="workorder_uploader"
     )
 
 col_m1, col_m2, col_m3 = st.columns(3)
 
-run_calculation = st.button("🔍 确认酒店及日期，开始自动核算大盘", type="secondary")
+run_calculation = st.button("🔍 确认基础数据，开始跨板块核算大盘", type="primary")
 
 # ==============================================================================
-# 3. 后台核心动态平账核算与高级公式导出引擎
+# 3. 后台核心真实账目平账核算与高级公式导出引擎
 # ==============================================================================
-if run_calculation and hotel_name != "请选择酒店" and uploaded_file_call is not None and uploaded_file_ext is not None:
+if run_calculation and hotel_name != "请选择酒店" and uploaded_file_call is not None and uploaded_file_ext is not None and uploaded_file_workorder is not None:
     try:
-        # ---- 【清洗过滤流】 ----
+        # ---- 1. 处理通话数据与分机表 ----
         df_detail = smart_read_detail(uploaded_file_call)
         try:
-            df_ext = pd.read_excel(uploaded_file_ext)
+            if uploaded_file_ext.name.endswith('.csv'):
+                df_ext = pd.read_csv(uploaded_file_ext)
+            else:
+                df_ext = pd.read_excel(uploaded_file_ext)
         except:
             df_ext = pd.read_excel(uploaded_file_ext, sheet_name=0)
         
@@ -130,7 +132,6 @@ if run_calculation and hotel_name != "请选择酒店" and uploaded_file_call is
         if "房间是否接入AI" in df_detail.columns:
             df_detail = df_detail.drop(columns=["房间是否接入AI"])
 
-        # 映射分机号
         df_detail['主叫号码_clean'] = df_detail['主叫号码'].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
         ext_col = '分机号' if '分机号' in df_ext.columns else df_ext.columns[1]
         desc_col = '分机描述' if '分机描述' in df_ext.columns else df_ext.columns[0]
@@ -139,7 +140,7 @@ if run_calculation and hotel_name != "请选择酒店" and uploaded_file_call is
         ext_dict = dict(zip(df_ext['分机号_clean'], df_ext[desc_col]))
         df_detail['房间是否接入AI'] = df_detail['主叫号码_clean'].map(ext_dict)
         
-        # 衍生辅助列
+        # 衍生辅助列公式
         def excel_nested_if_logic(row):
             al = str(row['房间是否接入AI']).strip()
             m = str(row['通话状态']).strip()
@@ -169,59 +170,51 @@ if run_calculation and hotel_name != "请选择酒店" and uploaded_file_call is
         df_detail['呼叫所在日期'] = df_detail['呼叫时间'].astype(str).apply(lambda x: x.split()[0] if len(x.split())>0 else '')
         df_detail['呼叫所在小时'] = df_detail['呼叫时间'].astype(str).apply(lambda x: x.split()[1].split(':')[0] if len(x.split())>1 and ':' in x.split()[1] else '')
 
-        start_dt = date_range[0]
-        end_dt = date_range[1] if len(date_range) > 1 else date_range[0]
+        df_valid = df_detail[(df_detail['酒店名称'] == hotel_name) & (df_detail['房间是否接入AI'].notna()) & (df_detail['通话类型'] == '呼入')].copy()
+
+        # ---- 2. 🌟 解析 PART 3 工单表（加入过滤空行逻辑） ----
+        if uploaded_file_workorder.name.endswith('.csv'):
+            df_wo = pd.read_csv(uploaded_file_workorder)
+        else:
+            try:
+                df_wo = pd.read_excel(uploaded_file_workorder)
+            except:
+                df_wo = pd.read_excel(uploaded_file_workorder, sheet_name=0)
         
-        df_slice = df_detail[
-            (df_detail['酒店名称'] == hotel_name) & 
-            (df_detail['呼叫所在日期'] >= str(start_dt)) & 
-            (df_detail['呼叫所在日期'] <= str(end_dt))
-        ]
-        df_valid = df_slice[df_slice['房间是否接入AI'].notna() & (df_slice['通话类型'] == '呼入')].copy()
+        df_wo.columns = df_wo.columns.astype(str).str.strip().str.replace('\n', '')
+        
+        # 🚨【核心修复】：丢弃完全空白的行，且确保工单ID不为空
+        df_wo = df_wo.dropna(how='all')
+        if '工单ID' in df_wo.columns:
+            df_wo = df_wo[df_wo['工单ID'].notna() & (df_wo['工单ID'].astype(str).str.strip() != '')]
+        elif '工单主题' in df_wo.columns: # 兼容处理
+            df_wo = df_wo[df_wo['工单主题'].notna() & (df_wo['工单主题'].astype(str).str.strip() != '')]
 
-        # 🎯 【核心平账引擎：真实的工单系统 HTML 日历映射】
-        # 严格按照工单后台真实截图录入每日数量
-        html_ticket_calendar = {
-            datetime.date(2026, 6, 12): {"total": 6, "timeout": 1},
-            datetime.date(2026, 6, 13): {"total": 5, "timeout": 1},
-            datetime.date(2026, 6, 14): {"total": 8, "timeout": 2},
-            datetime.date(2026, 6, 15): {"total": 10, "timeout": 3},
-            datetime.date(2026, 6, 16): {"total": 9, "timeout": 2},
-            datetime.date(2026, 6, 17): {"total": 11, "timeout": 3},
-            datetime.date(2026, 6, 18): {"total": 8, "timeout": 2},
-        }
+        # 过滤当前选择的酒店工单
+        if '酒店' in df_wo.columns:
+            df_wo_filtered = df_wo[df_wo['酒店'].astype(str).str.contains(hotel_name[:4])] 
+            if df_wo_filtered.empty:
+                df_wo_filtered = df_wo
+        else:
+            df_wo_filtered = df_wo
 
-        real_total_tickets = 0
-        real_timeout_tickets = 0
-
-        # 遍历用户选定的日期区间，进行精确求和
-        curr_day = start_dt
-        while curr_day <= end_dt:
-            if curr_day in html_ticket_calendar:
-                real_total_tickets += html_ticket_calendar[curr_day]["total"]
-                real_timeout_tickets += html_ticket_calendar[curr_day]["timeout"]
-            else:
-                # 兜底弹性算力（防止用户选了超出 12-18 号以外的日期）
-                real_total_tickets += 8
-                real_timeout_tickets += 2
-            curr_day += datetime.timedelta(days=1)
-
-        # 针对 12-18 全周期做一次绝对平账强控（确保 100% 返回 57 和 14）
-        if start_dt == datetime.date(2026, 6, 12) and end_dt == datetime.date(2026, 6, 18):
-            real_total_tickets = 57
-            real_timeout_tickets = 14
-
+        # 精准求和（已过滤全部脏空行）
+        real_total_tickets = len(df_wo_filtered)
+        
+        status_col = '工单状态' if '工单状态' in df_wo_filtered.columns else ('是否超时' if '是否超时' in df_wo_filtered.columns else df_wo_filtered.columns[4])
+        real_timeout_tickets = df_wo_filtered[status_col].astype(str).str.contains('已超时|是').sum()
+        
         real_timeout_rate = (real_timeout_tickets / real_total_tickets) if real_total_tickets > 0 else 0
 
         # ✨ 刷新网页前端看板组件
         with col_m1:
             st.metric(label="AI 服务工单总数", value=f"{real_total_tickets} 个")
         with col_m2:
-            st.metric(label="超时处理工单数 (含'已超时'状态)", value=f"{real_timeout_tickets} 个")
+            st.metric(label="超时处理工单数 (含'已超时')", value=f"{real_timeout_tickets} 个")
         with col_m3:
             st.metric(label="服务工单超时率", value=f"{real_timeout_rate * 100:.2f} %")
 
-        st.success("🟩 抓取数字与平账模型同步成功，已就绪一键三表联动导出！")
+        st.success("🟩 数据平账模型同步成功，脏空行已自动跳过！")
 
         # ---- 【高级公式格式化模版导出】 ----
         wb = Workbook()
@@ -239,8 +232,7 @@ if run_calculation and hotel_name != "请选择酒店" and uploaded_file_call is
         align_left = Alignment(horizontal="left", vertical="center", wrap_text=True)
         thin_border = Border(left=Side(style='thin', color='D9D9D9'), right=Side(style='thin', color='D9D9D9'), top=Side(style='thin', color='D9D9D9'), bottom=Side(style='thin', color='D9D9D9'))
         
-        user_date_str = f"{str(start_dt)[-5:].replace('-','')}-{str(end_dt)[-5:].replace('-','')}"
-        ws1.cell(row=1, column=2, value=f"数据周期：{user_date_str}").font = font_body
+        ws1.cell(row=1, column=2, value=f"数据周期：{detected_date_str}").font = font_body
         
         # PART 1
         for c in range(2, 7): ws1.cell(row=3, column=c).fill = fill_part
@@ -292,7 +284,7 @@ if run_calculation and hotel_name != "请选择酒店" and uploaded_file_call is
             for c in range(2, 5): ws1.cell(row=r, column=c).border = thin_border
             ws1.merge_cells(f'B{r}:C{r}')
 
-        # PART 3
+        # PART 3 
         for c in range(2, 7): ws1.cell(row=17, column=c).fill = fill_part
         ws1.cell(row=17, column=2, value="PART3：工单大盘超时统计").font = font_title
         ws1.merge_cells('B17:F17')
@@ -372,20 +364,20 @@ if run_calculation and hotel_name != "请选择酒店" and uploaded_file_call is
         excel_data.seek(0)
 
         st.download_button(
-            label=f"📥 导出【{user_date_str}】三大板块融合版运营报告",
+            label=f"📥 导出【{detected_date_str}】融合版多维运营报告",
             data=excel_data,
-            file_name=f"酒店AI运营报告【{user_date_str}全板块联动版】.xlsx",
+            file_name=f"酒店AI运营报告【{detected_date_str}联动整合版】.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             type="primary"
         )
     except Exception as e:
-        st.error(f"🚨 动态关联核算失败，请检查上传表格与筛选项是否匹配。详情: {e}")
+        st.error(f"🚨 跨板块账目核算失败，详情: {e}")
 else:
     if hotel_name == "请选择酒店":
         with col_m1: st.metric(label="AI 服务工单总数", value="-")
         with col_m2: st.metric(label="超时处理工单数", value="-")
         with col_m3: st.metric(label="服务工单超时率", value="-")
-    if uploaded_file_call is None or uploaded_file_ext is None:
-        st.info("ℹ️ 请在顶部上传【云总机通话详单】与【分机号表】以激活模型通道。")
+    if uploaded_file_call is None or uploaded_file_ext is None or uploaded_file_workorder is None:
+        st.info("ℹ️ 请在上方完整上传【通话详单】、【分机号表】和【工单表】三份核心数据源以激活平账漏斗。")
     else:
-        st.info("ℹ️ 请在 PART 3 点击确认核算，解锁融合报告导出通道。")
+        st.info("ℹ️ 请点击上方蓝色按钮，确认开始自动化全大盘对账。")
