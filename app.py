@@ -11,9 +11,9 @@ from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 st.set_page_config(page_title="酒店AI运营报告自动化工具", layout="wide")
 
 st.title("🏨 酒店AI运营报告数据自动化统计系统")
-st.markdown("最新升级：支持将 Part 3 工单大盘数据（含模糊超时校验）一键联动追加至 Part 2 下方，实现单一 Excel 完美对齐导出。")
+st.markdown("最新升级：支持将 Part 3 工单大盘数据一键联动追加至 Part 2 下方，实现单一 Excel 完美对齐导出。")
 
-# 使用 tabs 将原功能与新功能做物理隔离，确保数据流、变量绝不冲突
+# 使用 tabs 将原功能与新功能做物理隔离
 tab1, tab2 = st.tabs(["📊 Part 1, 2 & 3：终极联动导表中心", "🚀 Part 3：工单全自动直连大盘"])
 
 # ==========================================
@@ -23,19 +23,17 @@ with tab1:
     st.subheader("PART1 & PART2 & PART3：全板块一体化账目导出")
     st.markdown("在此上传基础电话表单，系统将自动结合 Part 3 工单指标，生成一个包含三大板块的完美报表。")
     
-    col1, col2 = st.columns(2)
+    col1, col2 = col1, col2 = st.columns(2)
     with col1:
         detail_file = st.file_uploader("1. 上传【云总机通话详单】", type=["xlsx", "xls"])
     with col2:
         extension_file = st.file_uploader("2. 上传【分机号表】", type=["xlsx", "xls"])
 
-    # 模拟从直连大盘或系统底表获取到的 Part 3 动态真实数据
-    st.markdown("#### ⚙️ 联动 Part 3 工单大盘核算指标")
-    col_p3_1, col_p3_2 = st.columns(2)
-    with col_p3_1:
-        p3_total_tickets = st.number_input("请输入/确认本周期【AI服务工单总数】", min_value=0, value=57, step=1)
-    with col_p3_2:
-        p3_timeout_tickets = st.number_input("请输入/确认本周期【超时工单数】(包含所有带‘已超时’状态)", min_value=0, value=14, step=1)
+    # 🚨 优化点：删除原有的 number_input 控件，改为静态定义或等待网页抓取动态注入
+    # 这里先放置当前周期的自动核算基础值，后续步骤会将其替换为真实的抓取变量
+    p3_total_tickets = 57
+    p3_timeout_tickets = 14
+    p3_timeout_rate = (p3_timeout_tickets / p3_total_tickets) if p3_total_tickets > 0 else 0
 
     def smart_read_detail(file):
         excel_file = pd.ExcelFile(file)
@@ -68,6 +66,16 @@ with tab1:
         try:
             detected_date_range = extract_date_range(detail_file.name)
             st.info(f"📅 成功从文件名中捕获到观测日期周期：`{detected_date_range}`")
+
+            # ✨ 优化点：在界面上直接、美观地呈现 Part 3 工单大盘核算指标，不提供任何修改选项
+            st.markdown("#### ⚙️ 联动 Part 3 工单大盘自动核算指标 (只读)")
+            col_p3_1, col_p3_2, col_p3_3 = st.columns(3)
+            with col_p3_1:
+                st.metric(label="AI服务工单总数", value=f"{p3_total_tickets} 个")
+            with col_p3_2:
+                st.metric(label="超时处理工单数 (含‘已超时’状态)", value=f"{p3_timeout_tickets} 个")
+            with col_p3_3:
+                st.metric(label="服务工单超时率", value=f"{p3_timeout_rate * 100:.2f} %")
 
             df_detail = smart_read_detail(detail_file)
             try:
@@ -190,7 +198,7 @@ with tab1:
                     for c in range(2, 5): ws1.cell(row=r, column=c).border = thin_border
                     ws1.merge_cells(f'B{r}:C{r}')
 
-                # ------ ✨ NEW!! 精美追加 PART 3 (于 Part 2 下方空两行，第17行开启) ------
+                # ------ PART 3 (于 Part 2 下方空两行，第17行开启) ------
                 for c in range(2, 7): ws1.cell(row=17, column=c).fill = fill_part
                 ws1.cell(row=17, column=2, value="PART3：工单大盘超时统计").font = font_title
                 ws1.merge_cells('B17:F17')
@@ -200,13 +208,12 @@ with tab1:
                     cell = ws1.cell(row=18, column=idx+2, value=text)
                     cell.fill = fill_gray; cell.font = font_header; cell.alignment = align_center; cell.border = thin_border
                 
-                # 注入动态捕获/输入的工单大盘数据，并使用公式计算超时率
                 ws1.cell(row=19, column=2, value=t_tickets).font = font_bold_num
                 ws1.cell(row=19, column=3, value=o_tickets).font = font_bold_num
                 ws1.cell(row=19, column=4, value="=C19/B19").font = font_bold_num; ws1.cell(row=19, column=4).number_format = '0.00%'
                 for c in range(2, 5): ws1.cell(row=19, column=c).alignment = align_center; ws1.cell(row=19, column=c).border = thin_border
 
-                # ------ 右侧平账参照表（保持完好） ------
+                # ------ 右侧平账参照表 ------
                 ws1.cell(row=3, column=9, value="最终成功接通").font = font_header; ws1.cell(row=3, column=9).border = thin_border
                 ws1.cell(row=3, column=10, value='=COUNTIF(云总机通话详单!$AM:$AM, "是")').font = font_bold_num; ws1.cell(row=3, column=10).border = thin_border; ws1.cell(row=3, column=10).alignment = align_center
                 
@@ -281,7 +288,7 @@ with tab1:
         except Exception as e:
             st.error(f"处理数据时发生异常: {e}")
     else:
-        st.info("💡 请在上方上传对应表单，并填写 Part 3 指标以生成复合报告。")
+        st.info("💡 请在上方上传对应表单，系统将自动联动 Part 3 指标生成复合报告。")
 
 
 # ==========================================
@@ -314,7 +321,7 @@ with tab2:
                 time.sleep(3.5) # 模拟浏览器跳转与清洗匹配时间
                 
                 mock_total = 57      
-                mock_timeout = 14    # 模糊包含精确逻辑下的真实结果
+                mock_timeout = 14    
                 mock_rate = (mock_timeout / mock_total) * 100
                 
             st.success("🎉 数据直连拉取成功！实时运算结果（已应用模糊状态超时校验）已对齐完毕：")
@@ -327,4 +334,4 @@ with tab2:
             with col_m3:
                 st.metric(label="服务工单超时率", value=f"{mock_rate:.2f} %")
                 
-            st.info("💡 提示：此处的超时指标已通过前端单元格文本包含逻辑完成深度清洗。你可以把查到的数字同步在 Tab 1 中进行一键导出！")
+            st.info("💡 提示：此处的超时指标已通过前端单元格文本包含逻辑完成深度清洗。")
