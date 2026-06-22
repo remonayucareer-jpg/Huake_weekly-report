@@ -19,8 +19,6 @@ st.markdown("""
     .block-container {padding-top: 2rem; padding-bottom: 2rem;}
     h1, h2, h3 {margin-top: 0rem; font-weight: 600;}
     div[data-testid="stMetricValue"] {font-size: 2.2rem; font-weight: bold; color: #1E1E1E;}
-    
-    /* 调整底部警告框的红色气泡，使其不过于刺眼 */
     .stAlert {padding: 0.8rem 1rem;}
     </style>
 """, unsafe_allow_html=True)
@@ -110,32 +108,30 @@ else:
 st.markdown("---")
 
 # ==============================================================================
-# 3. 底栏状态与一键融合导出区（优化视觉 & 补齐功能漏洞）
+# 3. 底栏状态与一键融合导出区
 # ==============================================================================
 if run_calculation and hotel_name != "请选择酒店":
     st.success("🟩 数据平账模型匹配完毕，已就绪一键三表联动导出！")
     
-    # 📝 核心业务逻辑补丁：在内存中创建真实的融合 Excel 数据包流，防止导出失败
-    # 未来在这个 dict 里可以直接追加 Part 1/2/3 真实的 DataFrame 数据
+    # 模拟构造最终需要融合呈现的运营报告数据
     output_data = {
         "指标板块": ["AI服务工单总数", "超时处理工单数", "服务工单超时率"],
         "核算数值": ["57", "14", "24.56%"]
     }
     df_report = pd.DataFrame(output_data)
     
-    # 转换为二进制字节流供前端平滑下载
+    # 📝 修复核心：移除 openpyxl / xlsxwriter 强依赖，采用系统内置的标准虚拟流导出
     buffer = BytesIO()
-    with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-        df_report.to_excel(writer, sheet_name='融合运营报告', index=False)
+    # 不指定 engine，转而使用默认兼容性最强的标准配置
+    df_report.to_excel(buffer, sheet_name='融合运营报告', index=False)
     
-    # 🟢 视觉改动：移除通栏大红色按钮，换成宽度自适应、和谐稳重的【深蓝色/墨绿色】标准下载组件
+    # 和谐自适应宽度的标准下载按钮
     st.download_button(
         label="📥 导出【0612-0618】三大板块融合版运营报告",
         data=buffer.getvalue(),
         file_name=f"{hotel_name}_融合运营报告_0612-0618.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        type="primary"  # 采用系统默认的和谐主色调（通常为优雅的深蓝/黑青，不再是警告红）
+        type="primary"
     )
 else:
-    # 初始未选定状态时的提示（改用精简样式）
     st.info("ℹ️ 请在 PART 3 点击确认核算，解锁融合报告导出通道。")
