@@ -86,11 +86,10 @@ if uploaded_file_call:
 st.markdown("---")
 
 # ==============================================================================
-# 2. PART 3：工单大盘自动核算（已彻底删掉酒店名称选择框）
+# 2. PART 3：工单大盘自动核算（去除了酒店选择框，直接传表）
 # ==============================================================================
 st.subheader("⚙️ PART 3：工单大盘自动核算")
 
-# 只有一个整行上传组件，清爽直接
 uploaded_file_workorder = st.file_uploader(
     "3. 上传【华客系统导出的工单原始表】", 
     type=["xlsx", "xls", "csv"],
@@ -162,14 +161,9 @@ if run_calculation and uploaded_file_call is not None and uploaded_file_ext is n
         df_detail['呼叫所在日期'] = df_detail['呼叫时间'].astype(str).apply(lambda x: x.split()[0] if len(x.split())>0 else '')
         df_detail['呼叫所在小时'] = df_detail['呼叫时间'].astype(str).apply(lambda x: x.split()[1].split(':')[0] if len(x.split())>1 and ':' in x.split()[1] else '')
 
-        # 获取通话详单中的酒店名称以便保持系统连贯性
-        hotel_title_from_file = "长沙高铁南站延年檀香山酒店"
-        if '酒店名称' in df_detail.columns and not df_detail['酒店名称'].empty:
-            hotel_title_from_file = df_detail['酒店名称'].iloc[0]
-
         df_valid = df_detail[(df_detail['房间是否接入AI'].notna()) & (df_detail['通话类型'] == '呼入')].copy()
 
-        # ---- 2. 解析 PART 3 工单表（直接全表核算，跳过空白行） ----
+        # ---- 2. 🌟 解析 PART 3 工单表（彻底卡死“是否超时 == 是”逻辑） ----
         if uploaded_file_workorder.name.endswith('.csv'):
             df_wo = pd.read_csv(uploaded_file_workorder)
         else:
@@ -180,32 +174,34 @@ if run_calculation and uploaded_file_call is not None and uploaded_file_ext is n
         
         df_wo.columns = df_wo.columns.astype(str).str.strip().str.replace('\n', '')
         
-        # 【核心清洗】：丢弃完全空白的行，且确保关键工单标识不为空
+        # 先强力剔除完全空白的垃圾行
         df_wo = df_wo.dropna(how='all')
         if '工单ID' in df_wo.columns:
-            df_wo_filtered = df_wo[df_wo['工单ID'].notna() & (df_wo['工单ID'].astype(str).str.strip() != '')]
+            df_wo_filtered = df_wo[df_wo['工单ID'].notna() & (df_wo['工单ID'].astype(str).str.strip() != '')].copy()
         elif '工单主题' in df_wo.columns:
-            df_wo_filtered = df_wo[df_wo['工单主题'].notna() & (df_wo['工单主题'].astype(str).str.strip() != '')]
+            df_wo_filtered = df_wo[df_wo['工单主题'].notna() & (df_wo['工单主题'].astype(str).str.strip() != '')].copy()
         else:
-            df_wo_filtered = df_wo
+            df_wo_filtered = df_wo.copy()
 
-        # 精准求和（不再按前端选择过滤酒店名称，直接信任表格数据）
+        # 1) AI服务工单总数：剔除空行后的总行数
         real_total_tickets = len(df_wo_filtered)
         
-        status_col = '工单状态' if '工单状态' in df_wo_filtered.columns else ('是否超时' if '是否超时' in df_wo_filtered.columns else df_wo_filtered.columns[4])
-        real_timeout_tickets = df_wo_filtered[status_col].astype(str).str.contains('已超时|是').sum()
+        # 2) 🚨 核心改动：寻找“是否超时”列，精准点算纯文本为“是”的行数
+        timeout_col = '是否超时' if '是否超时' in df_wo_filtered.columns else ('工单状态' if '工单状态' in df_wo_filtered.columns else df_wo_filtered.columns[5])
+        real_timeout_tickets = (df_wo_filtered[timeout_col].astype(str).str.strip() == '是').sum()
         
+        # 3) 计算真实超时率
         real_timeout_rate = (real_timeout_tickets / real_total_tickets) if real_total_tickets > 0 else 0
 
-        # ✨ 动态更新网页前端看板组件
+        # ✨ 渲染前端大盘指标
         with col_m1:
             st.metric(label="AI 服务工单总数", value=f"{real_total_tickets} 个")
         with col_m2:
-            st.metric(label="超时处理工单数 (已自动滤空)", value=f"{real_timeout_tickets} 个")
+            st.metric(label="超时处理工单数 (是否超时='是')", value=f"{real_timeout_tickets} 个")
         with col_m3:
             st.metric(label="服务工单超时率", value=f"{real_timeout_rate * 100:.2f} %")
 
-        st.success("🟩 大盘账目全自动计算完成，空白脏行已跳过！")
+        st.success("🟩 账目对平！已跳过空白行，并严格按照【是否超时 == 是】统计完成！")
 
         # ---- 【高级公式格式化模版导出】 ----
         wb = Workbook()
@@ -275,12 +271,12 @@ if run_calculation and uploaded_file_call is not None and uploaded_file_ext is n
             for c in range(2, 5): ws1.cell(row=r, column=c).border = thin_border
             ws1.merge_cells(f'B{r}:C{r}')
 
-        # PART 3 (将真实去除空行后的数据打入 Excel)
+        # PART 3 (将真实过滤空行、卡死“是否超时==是”的数字导入)
         for c in range(2, 7): ws1.cell(row=17, column=c).fill = fill_part
         ws1.cell(row=17, column=2, value="PART3：工单大盘超时统计").font = font_title
         ws1.merge_cells('B17:F17')
 
-        headers_r18 = ["AI服务工单总数", "超时处理工单数\n(状态文本含“已超时”)", "服务工单超时率\n(超时工单数/工单总数)"]
+        headers_r18 = ["AI服务工单总数", "超时处理工单数\n(是否超时列为“是”)", "服务工单超时率\n(超时工单数/工单总数)"]
         for idx, text in enumerate(headers_r18):
             cell = ws1.cell(row=18, column=idx+2, value=text)
             cell.fill = fill_gray; cell.font = font_header; cell.alignment = align_center; cell.border = thin_border
@@ -290,7 +286,7 @@ if run_calculation and uploaded_file_call is not None and uploaded_file_ext is n
         ws1.cell(row=19, column=4, value="=C19/B19").font = font_bold_num; ws1.cell(row=19, column=4).number_format = '0.00%'
         for c in range(2, 5): ws1.cell(row=19, column=c).alignment = align_center; ws1.cell(row=19, column=c).border = thin_border
 
-        # 右侧平账参照表
+        # 右侧平账参照表公式
         ws1.cell(row=3, column=9, value="最终成功接通").font = font_header; ws1.cell(row=3, column=9).border = thin_border
         ws1.cell(row=3, column=10, value='=COUNTIF(云总机通话详单!$AM:$AM, "是")').font = font_bold_num; ws1.cell(row=3, column=10).border = thin_border; ws1.cell(row=3, column=10).alignment = align_center
         
@@ -365,7 +361,6 @@ if run_calculation and uploaded_file_call is not None and uploaded_file_ext is n
         st.error(f"🚨 跨板块账目核算失败，详情: {e}")
 else:
     if uploaded_file_call is None or uploaded_file_ext is None or uploaded_file_workorder is None:
-        # 看板置空状态
         with col_m1: st.metric(label="AI 服务工单总数", value="-")
         with col_m2: st.metric(label="超时处理工单数", value="-")
         with col_m3: st.metric(label="服务工单超时率", value="-")
