@@ -9,7 +9,7 @@ from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 # 0. 页面全局配置
 # ==============================================================================
 st.set_page_config(
-    page_title="酒店AI运营报告自动化统计系统",
+    page_title="酒店AI运营报告自动化系统",
     page_icon="🏨",
     layout="wide",
     initial_sidebar_state="collapsed"
@@ -30,7 +30,7 @@ st.markdown("---")
 # ==============================================================================
 # 1. 数据源上传区（完美支持 .xls / .xlsx / .csv）
 # ==============================================================================
-st.subheader("📦 PART 1 & PART 2：全板块一体化账目")
+st.subheader("📦 PART 1 & PART 2：账目计算")
 
 col_upload1, col_upload2 = st.columns(2)
 
@@ -91,7 +91,7 @@ st.markdown("---")
 # ==============================================================================
 # 2. PART 3：工单大盘自动核算
 # ==============================================================================
-st.subheader("⚙️ PART 3：工单大盘自动核算")
+st.subheader("⚙️ PART 3：工单大盘核算")
 
 uploaded_file_workorder = st.file_uploader(
     "3. 上传【华客系统导出的工单原始表】(支持 .xlsx / .xls / .csv)", 
@@ -102,7 +102,7 @@ uploaded_file_workorder = st.file_uploader(
 st.markdown(" ")
 col_m1, col_m2, col_m3 = st.columns(3)
 
-run_calculation = st.button("🔍 确认基础数据，开始跨板块核算大盘", type="primary")
+run_calculation = st.button("🔍 确认基础数据，开始大盘核算", type="primary")
 
 # ==============================================================================
 # 3. 核心大盘动态公式导出引擎
