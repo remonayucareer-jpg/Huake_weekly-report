@@ -28,7 +28,7 @@ st.title("🏨 酒店 AI 运营报告数据自动化统计系统")
 st.markdown("---")
 
 # ==============================================================================
-# 1. 数据源上传区
+# 1. 数据源上传区（已完美支持直接上传 .xls 文件）
 # ==============================================================================
 st.subheader("📦 PART 1 & PART 2：全板块一体化账目")
 
@@ -36,14 +36,14 @@ col_upload1, col_upload2 = st.columns(2)
 
 with col_upload1:
     uploaded_file_call = st.file_uploader(
-        "1. 上传【云总机通话详单】", 
+        "1. 上传【云总机通话详单】(支持 .xlsx / .xls / .csv)", 
         type=["xlsx", "xls", "csv"],
         key="call_uploader"
     )
 
 with col_upload2:
     uploaded_file_ext = st.file_uploader(
-        "2. 上传【分机号表】", 
+        "2. 上传【分机号表】(支持 .xlsx / .xls / .csv)", 
         type=["xlsx", "xls", "csv"],
         key="ext_uploader"
     )
@@ -65,7 +65,11 @@ def extract_date_range(filename):
 def smart_read_detail(file):
     if file.name.endswith('.csv'):
         return pd.read_csv(file)
-    excel_file = pd.ExcelFile(file)
+    
+    # 自动识别旧版 .xls 还是新版 .xlsx
+    engine = 'xlrd' if file.name.endswith('.xls') else 'openpyxl'
+    excel_file = pd.ExcelFile(file, engine=engine)
+    
     for sheet_name in excel_file.sheet_names:
         df_tmp = excel_file.parse(sheet_name, nrows=10)
         combined_text = "".join(df_tmp.astype(str).values.flatten())
@@ -90,7 +94,7 @@ st.markdown("---")
 st.subheader("⚙️ PART 3：工单大盘自动核算")
 
 uploaded_file_workorder = st.file_uploader(
-    "3. 上传【华客系统导出的工单原始表】", 
+    "3. 上传【华客系统导出的工单原始表】(支持 .xlsx / .xls / .csv)", 
     type=["xlsx", "xls", "csv"],
     key="workorder_uploader"
 )
@@ -105,14 +109,19 @@ run_calculation = st.button("🔍 确认基础数据，开始跨板块核算大�
 # ==============================================================================
 if run_calculation and uploaded_file_call is not None and uploaded_file_ext is not None and uploaded_file_workorder is not None:
     try:
+        # 1. 读取通话详单
         df_detail = smart_read_detail(uploaded_file_call)
+        
+        # 2. 读取分机号表 (兼容 .xls)
         try:
             if uploaded_file_ext.name.endswith('.csv'):
                 df_ext = pd.read_csv(uploaded_file_ext)
             else:
-                df_ext = pd.read_excel(uploaded_file_ext)
+                ext_engine = 'xlrd' if uploaded_file_ext.name.endswith('.xls') else 'openpyxl'
+                df_ext = pd.read_excel(uploaded_file_ext, engine=ext_engine)
         except:
-            df_ext = pd.read_excel(uploaded_file_ext, sheet_name=0)
+            ext_engine = 'xlrd' if uploaded_file_ext.name.endswith('.xls') else 'openpyxl'
+            df_ext = pd.read_excel(uploaded_file_ext, sheet_name=0, engine=ext_engine)
         
         df_detail.columns = df_detail.columns.astype(str).str.strip().str.replace('\n', '')
         df_ext.columns = df_ext.columns.astype(str).str.strip().str.replace('\n', '')
@@ -126,14 +135,16 @@ if run_calculation and uploaded_file_call is not None and uploaded_file_ext is n
         # 严格保留呼入数据
         df_valid = df_detail[df_detail['通话类型'] == '呼入'].copy()
 
-        # 解析工单
+        # 3. 读取工单表 (兼容 .xls)
         if uploaded_file_workorder.name.endswith('.csv'):
             df_wo = pd.read_csv(uploaded_file_workorder)
         else:
             try:
-                df_wo = pd.read_excel(uploaded_file_workorder)
+                wo_engine = 'xlrd' if uploaded_file_workorder.name.endswith('.xls') else 'openpyxl'
+                df_wo = pd.read_excel(uploaded_file_workorder, engine=wo_engine)
             except:
-                df_wo = pd.read_excel(uploaded_file_workorder, sheet_name=0)
+                wo_engine = 'xlrd' if uploaded_file_workorder.name.endswith('.xls') else 'openpyxl'
+                df_wo = pd.read_excel(uploaded_file_workorder, sheet_name=0, engine=wo_engine)
         
         df_wo.columns = df_wo.columns.astype(str).str.strip().str.replace('\n', '')
         df_wo = df_wo.dropna(how='all')
@@ -154,7 +165,7 @@ if run_calculation and uploaded_file_call is not None and uploaded_file_ext is n
         with col_m2: st.metric(label="超时处理工单数", value=f"{real_timeout_tickets} 个")
         with col_m3: st.metric(label="服务工单超时率", value=f"{real_timeout_rate * 100:.2f} %")
 
-        # ---- 构建高级 openpyxl 工作簿 ----
+        # ---- 构建高级 openpyxl 工作簿 (固定输出标准的 xlsx 格式) ----
         wb = Workbook()
         ws1 = wb.active
         ws1.title = "电话数据"
@@ -189,7 +200,7 @@ if run_calculation and uploaded_file_call is not None and uploaded_file_ext is n
             cell = ws1.cell(row=6, column=idx+2, value=text)
             cell.fill = fill_gray; cell.font = font_header; cell.alignment = align_center; cell.border = thin_border
         
-        # 🌟 关联明细表精确映射：AL=房间是否接入AI，AM=最终成功接通，AN=接通方式
+        # 关联明细表精确映射
         ws1.cell(row=7, column=2, value='=COUNTIF(云总机通话详单!$AL:$AL, "客房")').font = font_bold_num
         ws1.cell(row=7, column=3, value='=COUNTIFS(云总机通话详单!$N:$N, "接通", 云总机通话详单!$AL:$AL, "客房")').font = font_bold_num
         ws1.cell(row=7, column=4, value="=C7/B7").font = font_bold_num; ws1.cell(row=7, column=4).number_format = '0.00%'
@@ -262,12 +273,11 @@ if run_calculation and uploaded_file_call is not None and uploaded_file_ext is n
         ws1.column_dimensions['E'].width = 24; ws1.column_dimensions['F'].width = 24; ws1.column_dimensions['H'].width = 15
         ws1.column_dimensions['I'].width = 40; ws1.column_dimensions['J'].width = 14
 
-        # ---- Sheet 2 标签页：云总机通话详单（全新对齐 AL~AP 列物理布局） ----
+        # ---- Sheet 2 标签页：云总机通话详单（AL~AP标准排布） ----
         ws2 = wb.create_sheet(title="云总机通话详单")
         ws2.views.sheetView[0].showGridLines = True
         
         orig_headers = [c for c in list(df_valid.columns)]
-        # 🌟 调整为完全正确的衍生字段顺序（AL=房间是否接入AI, AM=最终成功接通, AN=接通方式, AO=呼叫所在日期, AP=呼叫所在小时）
         fixed_extended_headers = ["房间是否接入AI", "最终成功接通", "接通方式", "呼叫所在日期", "呼叫所在小时"]
         final_all_headers = orig_headers + fixed_extended_headers
         
@@ -285,7 +295,7 @@ if run_calculation and uploaded_file_call is not None and uploaded_file_ext is n
             for col_idx, h_text in enumerate(orig_headers, 1):
                 ws2.cell(row=row_cursor, column=col_idx, value=row[h_text])
             
-            # 2. 🌟 完美灌入标准顺序下的原生 Excel 模板公式
+            # 2. 完美灌入标准顺序下的原生 Excel 模板公式
             # AL列 (第38列) = 房间是否接入AI
             ws2.cell(row=row_cursor, column=base_len+1, value=f'=VLOOKUP(G{row_cursor},分机号!B:C,2,FALSE)')
             
@@ -327,7 +337,7 @@ if run_calculation and uploaded_file_call is not None and uploaded_file_ext is n
         excel_data.seek(0)
 
         st.sidebar.markdown("### 💾 状态检查")
-        st.sidebar.success("列位顺序与公式已完全修正对齐！")
+        st.sidebar.success("已完全兼容 .xls 读取且确保产出标准 .xlsx 文件！")
 
         st.download_button(
             label=f"📥 导出【{detected_date_str}】全量对齐模板公式版报告",
