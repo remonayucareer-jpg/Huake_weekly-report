@@ -28,7 +28,7 @@ st.title("🏨 酒店 AI 运营报告数据自动化统计系统")
 st.markdown("---")
 
 # ==============================================================================
-# 1. 数据源上传区（已完美支持直接上传 .xls 文件）
+# 1. 数据源上传区（完美支持 .xls / .xlsx / .csv）
 # ==============================================================================
 st.subheader("📦 PART 1 & PART 2：全板块一体化账目")
 
@@ -66,7 +66,7 @@ def smart_read_detail(file):
     if file.name.endswith('.csv'):
         return pd.read_csv(file)
     
-    # 自动识别旧版 .xls 还是新版 .xlsx
+    # 动态选用引擎，防止 xlrd 误碰 xlsx
     engine = 'xlrd' if file.name.endswith('.xls') else 'openpyxl'
     excel_file = pd.ExcelFile(file, engine=engine)
     
@@ -112,16 +112,15 @@ if run_calculation and uploaded_file_call is not None and uploaded_file_ext is n
         # 1. 读取通话详单
         df_detail = smart_read_detail(uploaded_file_call)
         
-        # 2. 读取分机号表 (兼容 .xls)
-        try:
-            if uploaded_file_ext.name.endswith('.csv'):
-                df_ext = pd.read_csv(uploaded_file_ext)
-            else:
-                ext_engine = 'xlrd' if uploaded_file_ext.name.endswith('.xls') else 'openpyxl'
-                df_ext = pd.read_excel(uploaded_file_ext, engine=ext_engine)
-        except:
+        # 2. 读取分机号表 (修复引擎判定逻辑)
+        if uploaded_file_ext.name.endswith('.csv'):
+            df_ext = pd.read_csv(uploaded_file_ext)
+        else:
             ext_engine = 'xlrd' if uploaded_file_ext.name.endswith('.xls') else 'openpyxl'
-            df_ext = pd.read_excel(uploaded_file_ext, sheet_name=0, engine=ext_engine)
+            try:
+                df_ext = pd.read_excel(uploaded_file_ext, engine=ext_engine)
+            except:
+                df_ext = pd.read_excel(uploaded_file_ext, sheet_name=0, engine=ext_engine)
         
         df_detail.columns = df_detail.columns.astype(str).str.strip().str.replace('\n', '')
         df_ext.columns = df_ext.columns.astype(str).str.strip().str.replace('\n', '')
@@ -135,15 +134,14 @@ if run_calculation and uploaded_file_call is not None and uploaded_file_ext is n
         # 严格保留呼入数据
         df_valid = df_detail[df_detail['通话类型'] == '呼入'].copy()
 
-        # 3. 读取工单表 (兼容 .xls)
+        # 3. 读取工单表 (修复引擎判定逻辑)
         if uploaded_file_workorder.name.endswith('.csv'):
             df_wo = pd.read_csv(uploaded_file_workorder)
         else:
+            wo_engine = 'xlrd' if uploaded_file_workorder.name.endswith('.xls') else 'openpyxl'
             try:
-                wo_engine = 'xlrd' if uploaded_file_workorder.name.endswith('.xls') else 'openpyxl'
                 df_wo = pd.read_excel(uploaded_file_workorder, engine=wo_engine)
             except:
-                wo_engine = 'xlrd' if uploaded_file_workorder.name.endswith('.xls') else 'openpyxl'
                 df_wo = pd.read_excel(uploaded_file_workorder, sheet_name=0, engine=wo_engine)
         
         df_wo.columns = df_wo.columns.astype(str).str.strip().str.replace('\n', '')
@@ -337,7 +335,7 @@ if run_calculation and uploaded_file_call is not None and uploaded_file_ext is n
         excel_data.seek(0)
 
         st.sidebar.markdown("### 💾 状态检查")
-        st.sidebar.success("已完全兼容 .xls 读取且确保产出标准 .xlsx 文件！")
+        st.sidebar.success("已完全修复文件读取引擎兼容！")
 
         st.download_button(
             label=f"📥 导出【{detected_date_str}】全量对齐模板公式版报告",
