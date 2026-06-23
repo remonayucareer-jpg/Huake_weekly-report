@@ -118,12 +118,12 @@ if run_calculation and uploaded_file_call is not None and uploaded_file_ext is n
         df_ext.columns = df_ext.columns.astype(str).str.strip().str.replace('\n', '')
         df_detail = df_detail.loc[:, ~df_detail.columns.duplicated()]
         
-        # 清理可能存在的旧列名，防止列错位
+        # 清理可能存在的旧衍生列，防止由于追加新列造成乱序
         for col_to_drop in ["房间是否接入AI", "最终成功接通", "接通方式", "呼叫所在日期", "呼叫所在小时"]:
             if col_to_drop in df_detail.columns:
                 df_detail = df_detail.drop(columns=[col_to_drop])
 
-        # 严格只保留呼入数据
+        # 严格保留呼入数据
         df_valid = df_detail[df_detail['通话类型'] == '呼入'].copy()
 
         # 解析工单
@@ -189,7 +189,7 @@ if run_calculation and uploaded_file_call is not None and uploaded_file_ext is n
             cell = ws1.cell(row=6, column=idx+2, value=text)
             cell.fill = fill_gray; cell.font = font_header; cell.alignment = align_center; cell.border = thin_border
         
-        # 🌟 对齐明细表最新的固定列：AL=是否客房，AM=是否接通，AN=接通方式
+        # 🌟 关联明细表精确映射：AL=房间是否接入AI，AM=最终成功接通，AN=接通方式
         ws1.cell(row=7, column=2, value='=COUNTIF(云总机通话详单!$AL:$AL, "客房")').font = font_bold_num
         ws1.cell(row=7, column=3, value='=COUNTIFS(云总机通话详单!$N:$N, "接通", 云总机通话详单!$AL:$AL, "客房")').font = font_bold_num
         ws1.cell(row=7, column=4, value="=C7/B7").font = font_bold_num; ws1.cell(row=7, column=4).number_format = '0.00%'
@@ -238,7 +238,7 @@ if run_calculation and uploaded_file_call is not None and uploaded_file_ext is n
         ws1.cell(row=19, column=4, value="=C19/B19").font = font_bold_num; ws1.cell(row=19, column=4).number_format = '0.00%'
         for c in range(2, 5): ws1.cell(row=19, column=c).alignment = align_center; ws1.cell(row=19, column=c).border = thin_border
 
-        # 右侧平账对账漏斗表（已完美对齐包含“逗号”的精细文本）
+        # 右侧平账对账漏斗表
         ws1.cell(row=3, column=9, value="最终成功接通").font = font_header; ws1.cell(row=3, column=9).border = thin_border
         ws1.cell(row=3, column=10, value='=COUNTIF(云总机通话详单!$AM:$AM, "是")').font = font_bold_num; ws1.cell(row=3, column=10).border = thin_border; ws1.cell(row=3, column=10).alignment = align_center
         
@@ -247,7 +247,7 @@ if run_calculation and uploaded_file_call is not None and uploaded_file_ext is n
             ("人工未接通", "AI接通，转接人工，人工未接通", '=COUNTIF(云总机通话详单!$AN:$AN, "AI接通，转接人工，人工未接通")'),
             ("人工未接通", "直接进入人工且最终未接通", '=COUNTIF(云总机通话详单!$AN:$AN, "直接进入人工且最终未接通")'),
             ("人工接通", "进入AI后，再转接人工，且人工接通", '=COUNTIF(云总机通话详单!$AN:$AN, "进入AI后，再转接人工，且人工接通")'),
-            ("人工接通", "直接进入人工，且人工接通", '=COUNTIF(云总机通话详单!$AN:$AN, "直接进入人工，且人工接通")'), # ✨ 精准适配逗号
+            ("人工接通", "直接进入人工，且人工接通", '=COUNTIF(云总机通话详单!$AN:$AN, "直接进入人工，且人工接通")'), 
             ("客人主动挂断", "客人主动挂断", '=COUNTIF(云总机通话详单!$AN:$AN, "客人主动挂断")'),
             ("异常", "异常", '=COUNTIF(云总机通话详单!$AN:$AN, "异常")'),
             ("总来电量", "总来电量", "=SUM(J4:J10)")
@@ -262,19 +262,17 @@ if run_calculation and uploaded_file_call is not None and uploaded_file_ext is n
         ws1.column_dimensions['E'].width = 24; ws1.column_dimensions['F'].width = 24; ws1.column_dimensions['H'].width = 15
         ws1.column_dimensions['I'].width = 40; ws1.column_dimensions['J'].width = 14
 
-        # ---- Sheet 2 标签页：云总机通话详单（100%匹配用户模版公式注入） ----
+        # ---- Sheet 2 标签页：云总机通话详单（全新对齐 AL~AP 列物理布局） ----
         ws2 = wb.create_sheet(title="云总机通话详单")
         ws2.views.sheetView[0].showGridLines = True
         
         orig_headers = [c for c in list(df_valid.columns)]
-        # 强制将衍生计算公式列锁定在指定的物理列（AL=38, AM=39, AN=40, AP=42, AQ=43）
-        # 注意：AO列（41）在这套规则中为空置占位
-        fixed_extended_headers = ["房间是否接入AI", "最终成功接通", "接通方式", "", "呼叫所在小时", "呼叫所在日期"]
+        # 🌟 调整为完全正确的衍生字段顺序（AL=房间是否接入AI, AM=最终成功接通, AN=接通方式, AO=呼叫所在日期, AP=呼叫所在小时）
+        fixed_extended_headers = ["房间是否接入AI", "最终成功接通", "接通方式", "呼叫所在日期", "呼叫所在小时"]
         final_all_headers = orig_headers + fixed_extended_headers
         
         # 写入标准化表头标题
         for col_idx, h_text in enumerate(final_all_headers, 1):
-            if h_text == "": continue # 空置AO列名
             cell = ws2.cell(row=1, column=col_idx, value=h_text)
             cell.font = font_header; cell.fill = fill_gray; cell.border = thin_border
         
@@ -287,32 +285,28 @@ if run_calculation and uploaded_file_call is not None and uploaded_file_ext is n
             for col_idx, h_text in enumerate(orig_headers, 1):
                 ws2.cell(row=row_cursor, column=col_idx, value=row[h_text])
             
-            # 2. 🌟 灌入你指定的原生 Excel 模板公式
-            # AL列 (第38列) = 联动分机号 B:C 列进行主叫号码(G列)匹配
+            # 2. 🌟 完美灌入标准顺序下的原生 Excel 模板公式
+            # AL列 (第38列) = 房间是否接入AI
             ws2.cell(row=row_cursor, column=base_len+1, value=f'=VLOOKUP(G{row_cursor},分机号!B:C,2,FALSE)')
             
-            # AM列 (第39列) = 最终成功接通判定公式
+            # AM列 (第39列) = 最终成功接通
             ws2.cell(row=row_cursor, column=base_len+2, value=f'=IF(AL{row_cursor}<>"客房","--",IF(OR(AND(M{row_cursor}="接通",N{row_cursor}="接通",O{row_cursor}="接通"),AND(M{row_cursor}="接通",N{row_cursor}="接通",O{row_cursor}="--"),AND(M{row_cursor}="接通",N{row_cursor}="--",O{row_cursor}="接通")),"是","否"))')
             
-            # AN列 (第40列) = 接通方式细分渠道判定公式 (带逗号版)
+            # AN列 (第40列) = 接通方式
             ws2.cell(row=row_cursor, column=base_len+3, value=f'=IF(AND(AL{row_cursor}="客房",M{row_cursor}="接通",N{row_cursor}="接通",O{row_cursor}="接通"),"进入AI后，再转接人工，且人工接通",IF(AND(AL{row_cursor}="客房",M{row_cursor}="接通",N{row_cursor}="接通",O{row_cursor}="未接通"),"AI接通，转接人工，人工未接通",IF(AND(AL{row_cursor}="客房",M{row_cursor}="接通",N{row_cursor}="接通",O{row_cursor}="--"),"进入AI后，AI直接完成，未转接人工",IF(AND(AL{row_cursor}="客房",M{row_cursor}="接通",N{row_cursor}="--",O{row_cursor}="接通"),"直接进入人工，且人工接通",IF(AND(AL{row_cursor}="客房",M{row_cursor}="未接通",N{row_cursor}="--",O{row_cursor}="--"),"客人主动挂断",IF(AND(AL{row_cursor}="客房",M{row_cursor}="未接通",N{row_cursor}="--",O{row_cursor}="未接通"),"直接进入人工且最终未接通","异常"))))))')
             
-            # AO列 (第41列) = 保持空置，不填入任何内容
+            # AO列 (第41列) = 呼叫所在日期
+            ws2.cell(row=row_cursor, column=base_len+4, value=f'=DATE(YEAR(I{row_cursor}),MONTH(I{row_cursor}),DAY(I{row_cursor}))')
             
-            # AP列 (第42列) = 呼叫所在小时公式
+            # AP列 (第42列) = 呼叫所在小时
             ws2.cell(row=row_cursor, column=base_len+5, value=f'=HOUR(I{row_cursor})')
-            
-            # AQ列 (第43列) = 呼叫所在日期公式
-            ws2.cell(row=row_cursor, column=base_len+6, value=f'=DATE(YEAR(I{row_cursor}),MONTH(I{row_cursor}),DAY(I{row_cursor}))')
             
             row_cursor += 1
 
-        # ---- Sheet 3 标签页：分机号（调整列排布全面适配VLOOKUP） ----
+        # ---- Sheet 3 标签页：分机号 ----
         ws3 = wb.create_sheet(title="分机号")
         ws3.views.sheetView[0].showGridLines = True
         
-        # 调整物理列的实际排布：A列房间号，B列分机号，C列分机描述
-        # 此时用 VLOOKUP(G2, 分机号!B:C, 2, FALSE) 能够完美准确查到C列的“客房”
         ext_headers = ["房间号", "分机号", "分机描述"]
         for col_idx, h_text in enumerate(ext_headers, 1):
             cell = ws3.cell(row=1, column=col_idx, value=h_text)
@@ -333,12 +327,12 @@ if run_calculation and uploaded_file_call is not None and uploaded_file_ext is n
         excel_data.seek(0)
 
         st.sidebar.markdown("### 💾 状态检查")
-        st.sidebar.success("已完美对齐模板公式规则！")
+        st.sidebar.success("列位顺序与公式已完全修正对齐！")
 
         st.download_button(
             label=f"📥 导出【{detected_date_str}】全量对齐模板公式版报告",
             data=excel_data,
-            file_name=f"酒店AI运营报告【{detected_date_str}对齐模板公式版】.xlsx",
+            file_name=f"酒店AI运营报告【{detected_date_str}修正对齐版】.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             type="primary"
         )
